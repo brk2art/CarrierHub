@@ -1,0 +1,21 @@
+<Project Sdk="Aspire.AppHost.Sdk/13.6.2">
+
+  <ItemGroup>
+    <ProjectReference Include="..\CarrierHub.Tracking\CarrierHub.Tracking.csproj" />
+    <ProjectReference Include="..\CarrierHub.PublicApi\CarrierHub.PublicApi.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.PostgreSQL" Version="13.6.2" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AspireUseCliBundle>true</AspireUseCliBundle>
+    <UserSecretsId>2a373119-92b3-4eba-be04-22039931a4e5</UserSecretsId>
+  </PropertyGroup>
+
+</Project>

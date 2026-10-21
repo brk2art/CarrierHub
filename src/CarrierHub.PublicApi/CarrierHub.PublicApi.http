@@ -1,0 +1,6 @@
+@CarrierHub.PublicApi_HostAddress = http://localhost:5049
+
+GET {{CarrierHub.PublicApi_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
