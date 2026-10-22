@@ -1,6 +1,69 @@
-@CarrierHub.Tracking_HostAddress = http://localhost:5287
+@tracking = https://localhost:7059
+@merchant = merchant-1
 
-GET {{CarrierHub.Tracking_HostAddress}}/weatherforecast/
-Accept: application/json
+### 1. Create a shipment
+POST {{tracking}}/merchants/{{merchant}}/shipments
+Content-Type: application/json
 
-###
+{
+  "merchantReference": "ORDER-1001",
+  "carrier": "FastShip",
+  "trackingNumber": "FS123456",
+  "promisedBy": "2026-10-25T18:00:00+02:00"
+}
+
+### 2. "Delivered" arrives first
+POST {{tracking}}/carrier-events
+Content-Type: application/json
+
+{
+  "carrier": "FastShip",
+  "trackingNumber": "FS123456",
+  "carrierEventId": "fs-3",
+  "status": "Delivered",
+  "occurredAt": "2026-10-24T14:10:00+02:00",
+  "location": "Copenhagen"
+}
+
+### 3. "Out for delivery" arrives later, but happened earlier
+POST {{tracking}}/carrier-events
+Content-Type: application/json
+
+{
+  "carrier": "FastShip",
+  "trackingNumber": "FS123456",
+  "carrierEventId": "fs-2",
+  "status": "OutForDelivery",
+  "occurredAt": "2026-10-24T08:30:00+02:00",
+  "location": "Copenhagen depot"
+}
+
+### 4. The carrier sends the same event again
+POST {{tracking}}/carrier-events
+Content-Type: application/json
+
+{
+  "carrier": "FastShip",
+  "trackingNumber": "FS123456",
+  "carrierEventId": "fs-2",
+  "status": "OutForDelivery",
+  "occurredAt": "2026-10-24T08:30:00+02:00",
+  "location": "Copenhagen depot"
+}
+
+### 5. Read it back
+GET {{tracking}}/merchants/{{merchant}}/shipments?reference=ORDER-1001
+
+### 6. Another merchant sees nothing
+GET {{tracking}}/merchants/merchant-2/shipments?reference=ORDER-1001
+
+### 7. Retry the create: same shipment, no duplicate
+POST {{tracking}}/merchants/{{merchant}}/shipments
+Content-Type: application/json
+
+{
+  "merchantReference": "ORDER-1001",
+  "carrier": "FastShip",
+  "trackingNumber": "FS123456",
+  "promisedBy": "2026-10-25T18:00:00+02:00"
+}

@@ -1,16 +1,33 @@
+using System.Text.Json.Serialization;
+using CarrierHub.Tracking.Api;
+using CarrierHub.Tracking.Data;
+using Microsoft.EntityFrameworkCore;
+
 var builder = WebApplication.CreateBuilder(args);
 
-builder.AddServiceDefaults(); // OpenTelemetry, health checks, service discovery, resilience
+builder.AddServiceDefaults();
+builder.AddNpgsqlDbContext<TrackingDbContext>("trackingdb");   // connection string comes from Aspire
+builder.Services.AddSingleton(TimeProvider.System);            // a fake clock in tests, the real one here
 builder.Services.AddOpenApi();
+builder.Services.ConfigureHttpJsonOptions(o =>
+    o.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));   // "Delivered", not 5
 
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
+{
     app.MapOpenApi();
+
+    // Development only: bring the database up to date at startup.
+    // Production will use a migration bundle in the deployment pipeline (Phase 6).
+    using var scope = app.Services.CreateScope();
+    await scope.ServiceProvider.GetRequiredService<TrackingDbContext>().Database.MigrateAsync();
+}
 
 app.UseHttpsRedirection();
 
 app.MapGet("/", () => "CarrierHub Tracking");
-app.MapDefaultEndpoints();      // /health and /alive
+app.MapShipmentEndpoints();
+app.MapDefaultEndpoints();
 
 app.Run();

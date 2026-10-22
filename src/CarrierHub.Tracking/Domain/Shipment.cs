@@ -27,12 +27,12 @@ public sealed class Shipment
         MerchantReference = merchantReference;
         Carrier = carrier;
         TrackingNumber = trackingNumber;
-        PromisedBy = promisedBy;
-        CreatedAt = createdAt;
+        PromisedBy = promisedBy.ToUniversalTime();
+        CreatedAt = createdAt.ToUniversalTime();
         Status = ShipmentStatus.Created;
     }
 
-    private Shipment() { }   // for EF Core in step 3
+    private Shipment() { }   // for EF Core
 
     public Guid Id { get; private set; }
 
@@ -48,6 +48,13 @@ public sealed class Shipment
     public DateTimeOffset CreatedAt { get; private set; }
     public ShipmentStatus Status { get; private set; }
     public DateTimeOffset? DeliveredAt { get; private set; }
+
+    // Changes with every new event, so saving an event always updates the shipment row
+    // and the database's concurrency check always runs.
+    public int EventCount { get; private set; }
+
+    // The stored events, in arrival order. EF Core maps this; read Timeline instead.
+    public IReadOnlyCollection<TrackingEvent> Events => _events;
 
     // The events in the order they happened, whatever order they arrived in.
     public IReadOnlyList<TrackingEvent> Timeline =>
@@ -91,5 +98,6 @@ public sealed class Shipment
 
         Status = status;
         DeliveredAt = deliveredAt;
+        EventCount = _events.Count;
     }
 }

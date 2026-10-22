@@ -13,13 +13,13 @@ public sealed class TrackingEvent
 
         CarrierEventId = carrierEventId;
         Status = status;
-        OccurredAt = occurredAt;
-        ReceivedAt = receivedAt;
+        OccurredAt = occurredAt.ToUniversalTime();   // stored as UTC; PostgreSQL timestamptz needs offset 0
+        ReceivedAt = receivedAt.ToUniversalTime();
         Location = location;
         Description = description;
     }
 
-    private TrackingEvent() { }   // for EF Core in step 3
+    private TrackingEvent() { }   // for EF Core
 
     // The carrier's own ID for this event. The same ID twice is the same event.
     public string CarrierEventId { get; private set; } = "";
