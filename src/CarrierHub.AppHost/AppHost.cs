@@ -11,8 +11,8 @@ var tracking = builder.AddProject<Projects.CarrierHub_Tracking>("tracking")
 
 // The merchant-facing API. It reaches shipment data only through Tracking.
 builder.AddProject<Projects.CarrierHub_PublicApi>("publicapi")
-    .WithReference(trackingDb)
-    .WaitFor(trackingDb)
+    .WithReference(tracking)
+    .WaitFor(tracking)
     .WithExternalHttpEndpoints();
 
 builder.Build().Run();

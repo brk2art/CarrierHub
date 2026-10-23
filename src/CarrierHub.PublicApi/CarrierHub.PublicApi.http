@@ -1,6 +1,43 @@
-@CarrierHub.PublicApi_HostAddress = http://localhost:5049
+### 1. No token: 401
+GET {{publicapi}}/v1/shipments
 
-GET {{CarrierHub.PublicApi_HostAddress}}/weatherforecast/
-Accept: application/json
+### 2. merchant-1 creates a shipment: 201, Location /v1/shipments/{id}
+# @name create
+POST {{publicapi}}/v1/shipments
+Authorization: Bearer {{merchant1}}
+Content-Type: application/json
 
-###
+{
+  "merchantReference": "ORDER-2001",
+  "carrier": "FastShip",
+  "trackingNumber": "FS200001",
+  "promisedBy": "2026-10-28T18:00:00+01:00"
+}
+
+### 3. merchant-1 reads it: 200, and no receivedAt anywhere
+GET {{publicapi}}/v1/shipments/{{create.response.body.$.id}}
+Authorization: Bearer {{merchant1}}
+
+### 4. merchant-2 asks for the same id: 404
+GET {{publicapi}}/v1/shipments/{{create.response.body.$.id}}
+Authorization: Bearer {{merchant2}}
+
+### 5. A read-only token tries to create: 403
+POST {{publicapi}}/v1/shipments
+Authorization: Bearer {{readonly1}}
+Content-Type: application/json
+
+{
+  "merchantReference": "ORDER-2002",
+  "carrier": "FastShip",
+  "trackingNumber": "FS200002",
+  "promisedBy": "2026-10-28T18:00:00+01:00"
+}
+
+### 6. A read-only token can read: 200
+GET {{publicapi}}/v1/shipments?reference=ORDER-2001
+Authorization: Bearer {{readonly1}}
+
+### 7. A token without merchant_id: 403
+GET {{publicapi}}/v1/shipments
+Authorization: Bearer {{nomerchant}}
