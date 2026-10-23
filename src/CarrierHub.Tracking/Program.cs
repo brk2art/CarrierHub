@@ -31,3 +31,5 @@ app.MapShipmentEndpoints();
 app.MapDefaultEndpoints();
 
 app.Run();
+
+public partial class Program { }   // lets the integration tests start this app

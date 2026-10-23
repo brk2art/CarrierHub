@@ -147,7 +147,9 @@ public static class ShipmentEndpoints
                 await db.SaveChangesAsync(ct);
                 return Results.Ok(CarrierEventResponse.From(shipment.Id, outcome));
             }
-            catch (DbUpdateException ex) when (attempt < 3 && (ex is DbUpdateConcurrencyException || IsUniqueViolation(ex)))
+            // A save only fails because another request saved this shipment first. So with N requests at once,
+            // N attempts are always enough. Phase 3 removes the race: Service Bus sessions give one writer per shipment.
+            catch (DbUpdateException ex) when (attempt < 5 && (ex is DbUpdateConcurrencyException || IsUniqueViolation(ex)))
             {
                 // Another request changed this shipment at the same moment. Forget what we loaded and start
                 // again from the database; if it was the same event, the domain now reports a duplicate.
