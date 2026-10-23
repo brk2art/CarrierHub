@@ -67,3 +67,9 @@ Content-Type: application/json
   "trackingNumber": "FS123456",
   "promisedBy": "2026-10-25T18:00:00+02:00"
 }
+
+### Active FastShip shipments (should be [])
+GET {{tracking}}/carriers/fastship/active-shipments
+
+### Active NordPost shipments (should be [])
+GET {{tracking}}/carriers/nordpost/active-shipments

@@ -4,6 +4,10 @@ var builder = DistributedApplication.CreateBuilder(args);
 var postgres = builder.AddPostgres("postgres").WithDataVolume();
 var trackingDb = postgres.AddDatabase("trackingdb");
 
+// Redis: the Gateway's memory of which events it already forwarded. No volume on purpose:
+// a restart starts empty, so every measurement run starts from the same point.
+var redis = builder.AddRedis("redis");
+
 // Tracking owns shipments and their timeline. Only it talks to trackingdb.
 var tracking = builder.AddProject<Projects.CarrierHub_Tracking>("tracking")
     .WithReference(trackingDb)
@@ -23,6 +27,8 @@ builder.AddProject<Projects.CarrierHub_CarrierGateway>("gateway")
     .WithReference(carriers)
     .WaitFor(carriers)
     .WithReference(tracking)
-    .WaitFor(tracking);
+    .WaitFor(tracking)
+    .WithReference(redis)
+    .WaitFor(redis);
 
 builder.Build().Run();

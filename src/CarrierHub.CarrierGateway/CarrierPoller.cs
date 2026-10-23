@@ -7,13 +7,24 @@ public sealed class PollingOptions
     public TimeSpan Interval { get; set; } = TimeSpan.FromSeconds(10);
 }
 
-// Polls every carrier for its active shipments and forwards what it finds to Tracking.
-public sealed class CarrierPoller(IServiceScopeFactory scopes, IOptions<PollingOptions> options,
-    TimeProvider clock, ILogger<CarrierPoller> logger) : BackgroundService
+public sealed class DedupeOptions
 {
+    // Off only to measure the baseline.
+    public bool Enabled { get; set; } = true;
+}
+
+// Polls every carrier for its active shipments and forwards what's new to Tracking.
+public sealed class CarrierPoller(IServiceScopeFactory scopes, IOptions<PollingOptions> polling, IOptions<DedupeOptions> dedupe,
+    ForwardedEvents forwarded, GatewayMetrics metrics, TimeProvider clock, ILogger<CarrierPoller> logger) : BackgroundService
+{
+    private sealed class Round
+    {
+        public int Added, Duplicates, Skipped;
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        using var timer = new PeriodicTimer(options.Value.Interval, clock);
+        using var timer = new PeriodicTimer(polling.Value.Interval, clock);
         do
         {
             await PollOnceAsync(stoppingToken);
@@ -41,22 +52,60 @@ public sealed class CarrierPoller(IServiceScopeFactory scopes, IOptions<PollingO
                 continue;
             }
 
+            if (active.Count == 0)
+                continue;
+
+            var round = new Round();
             foreach (var shipment in active)
-                await PollShipmentAsync(adapter, tracking, shipment, ct);
+                await PollShipmentAsync(adapter, tracking, shipment, round, ct);
+
+            var (added, duplicates, skipped) = metrics.Totals;
+            logger.LogInformation(
+                "{Carrier} round: {Shipments} active, {Added} added, {Duplicates} duplicates sent, {Skipped} skipped. " +
+                "Since start: {TotalAdded} added, {TotalDuplicates} duplicates sent, {TotalSkipped} skipped",
+                adapter.Carrier, active.Count, round.Added, round.Duplicates, round.Skipped, added, duplicates, skipped);
         }
     }
 
-    private async Task PollShipmentAsync(ICarrierAdapter adapter, TrackingClient tracking, ActiveShipment shipment, CancellationToken ct)
+    private async Task PollShipmentAsync(ICarrierAdapter adapter, TrackingClient tracking, ActiveShipment shipment,
+        Round round, CancellationToken ct)
     {
         try
         {
-            var events = await adapter.GetEventsAsync(shipment.TrackingNumber, ct);
-
             // A polling API repeats its whole history every time, sometimes the same event twice in one answer.
-            // Tracking ignores duplicates anyway (ADR 2); dropping the obvious ones here only saves calls.
-            foreach (var e in events.DistinctBy(e => e.CarrierEventId))
+            var events = (await adapter.GetEventsAsync(shipment.TrackingNumber, ct))
+                .DistinctBy(e => e.CarrierEventId)
+                .ToList();
+
+            IReadOnlySet<string> alreadyForwarded = dedupe.Value.Enabled
+                ? await forwarded.AlreadyForwardedAsync(adapter.Carrier, shipment, events)
+                : new HashSet<string>();
+
+            foreach (var e in events)
             {
+                if (alreadyForwarded.Contains(e.CarrierEventId))
+                {
+                    round.Skipped++;
+                    metrics.Record(adapter.Carrier, GatewayMetrics.Skipped);
+                    continue;
+                }
+
                 var result = await tracking.SendEventAsync(shipment, e, ct);
+
+                if (result.Result == "Duplicate")
+                {
+                    round.Duplicates++;
+                    metrics.Record(adapter.Carrier, GatewayMetrics.Duplicate);
+                }
+                else
+                {
+                    round.Added++;
+                    metrics.Record(adapter.Carrier, GatewayMetrics.Added);
+                }
+
+                if (dedupe.Value.Enabled)
+                    await forwarded.MarkForwardedAsync(adapter.Carrier, shipment, e.CarrierEventId);
+
                 if (result.StatusChanged)
                     logger.LogInformation("{Carrier} {TrackingNumber} is now {Status}",
                         adapter.Carrier, shipment.TrackingNumber, e.Status);

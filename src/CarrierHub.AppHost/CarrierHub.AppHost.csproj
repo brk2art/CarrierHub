@@ -1,4 +1,4 @@
-<Project Sdk="Aspire.AppHost.Sdk/13.6.2">
+<Project Sdk="Aspire.AppHost.Sdk/13.6.3">
 
   <ItemGroup>
     <ProjectReference Include="..\CarrierHub.Tracking\CarrierHub.Tracking.csproj" />
@@ -8,7 +8,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Aspire.Hosting.PostgreSQL" Version="13.6.2" />
+    <PackageReference Include="Aspire.Hosting.PostgreSQL" Version="13.6.3" />
+    <PackageReference Include="Aspire.Hosting.Redis" Version="13.6.3" />
   </ItemGroup>
 
   <PropertyGroup>

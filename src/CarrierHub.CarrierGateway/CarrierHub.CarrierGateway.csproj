@@ -4,6 +4,10 @@
     <ProjectReference Include="..\CarrierHub.ServiceDefaults\CarrierHub.ServiceDefaults.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Aspire.StackExchange.Redis" Version="13.6.3" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
