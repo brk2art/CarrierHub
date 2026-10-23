@@ -10,10 +10,10 @@ GET {{carriers}}/fastship/v2/shipments/FS300001/events
 GET {{carriers}}/nordpost/api/track?barcode=NP300001
 
 ### 4. Make FastShip unreliable
-PUT {{carriers}}/admin/faults/fastship
+PUT {{carriers}}/admin/faults/nordpost
 Content-Type: application/json
 
-{ "errorRate": 0.3, "duplicateRate": 0.5, "shuffle": true, "latencyMs": 500 }
+{ "errorRate": 0.3, "duplicateRate": 0.5, "shuffle": true, "latencyMs": 20000 }
 
 ### 5. Send this several times: some 500s, repeated events, random order
 GET {{carriers}}/fastship/v2/shipments/FS300001/events

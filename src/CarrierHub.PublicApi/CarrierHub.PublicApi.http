@@ -90,33 +90,24 @@ Content-Type: application/json
 GET {{publicapi}}/v1/shipments?reference=ORDER-3003
 Authorization: Bearer {{merchant1}}
 
-### Run B: 1
+### Isolation 1: a FastShip shipment
 POST {{publicapi}}/v1/shipments
 Authorization: Bearer {{merchant1}}
 Content-Type: application/json
 
-{ "merchantReference": "ORDER-6201", "carrier": "FastShip", "trackingNumber": "FS620001", "promisedBy": "2026-10-30T18:00:00+01:00" }
+{ "merchantReference": "ORDER-7001", "carrier": "FastShip", "trackingNumber": "FS700001", "promisedBy": "2026-10-30T18:00:00+01:00" }
 
-### Run B: 2
+### Isolation 2: a NordPost shipment
 POST {{publicapi}}/v1/shipments
 Authorization: Bearer {{merchant1}}
 Content-Type: application/json
 
-{ "merchantReference": "ORDER-6202", "carrier": "FastShip", "trackingNumber": "FS620002", "promisedBy": "2026-10-30T18:00:00+01:00" }
+{ "merchantReference": "ORDER-7002", "carrier": "NordPost", "trackingNumber": "NP700001", "promisedBy": "2026-10-30T18:00:00+01:00" }
 
-### Run B: 3
-POST {{publicapi}}/v1/shipments
+### Isolation 3: watch FastShip (should be Delivered after about 2 minutes, even with NordPost down)
+GET {{publicapi}}/v1/shipments?reference=ORDER-7001
 Authorization: Bearer {{merchant1}}
-Content-Type: application/json
 
-{ "merchantReference": "ORDER-6203", "carrier": "NordPost", "trackingNumber": "NP620001", "promisedBy": "2026-10-30T18:00:00+01:00" }
-
-### Run B: 4
-POST {{publicapi}}/v1/shipments
-Authorization: Bearer {{merchant1}}
-Content-Type: application/json
-
-{ "merchantReference": "ORDER-6204", "carrier": "NordPost", "trackingNumber": "NP620002", "promisedBy": "2026-10-30T18:00:00+01:00" }
-### Check
-GET {{publicapi}}/v1/shipments?reference=ORDER-5201
+### Isolation 4: watch NordPost (stuck while it's down, catches up after the reset)
+GET {{publicapi}}/v1/shipments?reference=ORDER-7002
 Authorization: Bearer {{merchant1}}
