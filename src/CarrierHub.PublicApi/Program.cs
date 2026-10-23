@@ -1,3 +1,5 @@
+using System.Security.Claims;
+using System.Threading.RateLimiting;
 using CarrierHub.PublicApi;
 using CarrierHub.PublicApi.V1;
 
@@ -19,6 +21,31 @@ builder.Services.AddAuthorizationBuilder()
         .RequireClaim(Claims.MerchantId)
         .RequireClaim("scope", Scopes.Write));
 
+// A merchant that floods the API slows down only itself: the bucket is keyed on the token's merchant, not the IP.
+var limits = builder.Configuration.GetSection("RateLimits:PerMerchant").Get<MerchantRateLimit>() ?? new MerchantRateLimit();
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy(RateLimits.PerMerchant, context =>
+        RateLimitPartition.GetTokenBucketLimiter(
+            context.User.FindFirstValue(Claims.MerchantId) ?? "no-merchant",
+            _ => new TokenBucketRateLimiterOptions
+            {
+                TokenLimit = limits.TokenLimit,
+                TokensPerPeriod = limits.TokensPerPeriod,
+                ReplenishmentPeriod = TimeSpan.FromSeconds(limits.PeriodSeconds),
+                QueueLimit = 0,   // reject at once instead of holding requests
+                AutoReplenishment = true,
+            }));
+    options.OnRejected = (context, _) =>
+    {
+        // Tell well-behaved clients when to come back.
+        if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
+            context.HttpContext.Response.Headers.RetryAfter = ((int)Math.Ceiling(retryAfter.TotalSeconds)).ToString();
+        return ValueTask.CompletedTask;
+    };
+});
+
 builder.Services.AddHttpClient<TrackingClient>(client => client.BaseAddress = new Uri("https+http://tracking"));
 
 var app = builder.Build();
@@ -29,6 +56,7 @@ if (app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();   // after authentication, so the merchant is known; rejected callers don't use up a bucket
 
 app.MapGet("/", () => "CarrierHub Public API");
 app.MapShipmentEndpoints();

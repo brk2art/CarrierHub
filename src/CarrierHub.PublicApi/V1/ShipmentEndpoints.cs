@@ -1,6 +1,8 @@
 ﻿using System.Net;
+using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text.Json;
+using Polly;
 
 namespace CarrierHub.PublicApi.V1;
 
@@ -10,7 +12,10 @@ public static class ShipmentEndpoints
 
     public static void MapShipmentEndpoints(this WebApplication app)
     {
-        var v1 = app.MapGroup("/v1/shipments");
+        var v1 = app.MapGroup("/v1/shipments")
+            .AddEndpointFilter(TrackingUnavailableFilter)
+            .RequireRateLimiting(RateLimits.PerMerchant);
+
         v1.MapPost("/", CreateAsync).RequireAuthorization(Policies.Write);
         v1.MapGet("/{id:guid}", GetAsync).RequireAuthorization(Policies.Read);
         v1.MapGet("/", SearchAsync).RequireAuthorization(Policies.Read);
@@ -46,6 +51,25 @@ public static class ShipmentEndpoints
     // The authorization policy guarantees the claim is there.
     private static string MerchantId(ClaimsPrincipal user) => user.FindFirstValue(Claims.MerchantId)!;
 
+    // Tracking unreachable, timed out, or its circuit breaker open (Polly's ExecutionRejectedException covers
+    // the last two): our problem, not the caller's. Answer 502, log the details, and don't send them to the caller.
+    private static async ValueTask<object?> TrackingUnavailableFilter(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
+    {
+        try
+        {
+            return await next(context);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or ExecutionRejectedException)
+        {
+            context.HttpContext.RequestServices.GetRequiredService<ILoggerFactory>()
+                .CreateLogger("CarrierHub.PublicApi.Tracking")
+                .LogWarning(ex, "Call to Tracking failed");
+
+            return Results.Problem("The tracking service is not available. Try again shortly.",
+                statusCode: StatusCodes.Status502BadGateway);
+        }
+    }
+
     private static async Task<IResult> ForwardAsync<T>(HttpResponseMessage response, CancellationToken ct)
     {
         switch (response.StatusCode)
@@ -62,7 +86,6 @@ public static class ShipmentEndpoints
                     statusCode: (int)response.StatusCode);
 
             default:
-                // Our problem, not the caller's: say so without leaking internal details.
                 return Results.Problem("The tracking service could not complete the request.",
                     statusCode: StatusCodes.Status502BadGateway);
         }
