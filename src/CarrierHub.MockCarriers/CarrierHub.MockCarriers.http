@@ -1,0 +1,31 @@
+@carriers = https://localhost:7049
+
+### 1. FastShip: the first call starts the journey, so the list is empty
+GET {{carriers}}/fastship/v2/shipments/FS300001/events
+
+### 2. Send again after ~30 seconds: picked up, in Danish time (+02:00, +01:00 after 25 October)
+GET {{carriers}}/fastship/v2/shipments/FS300001/events
+
+### 3. NordPost: the same journey idea in XML, local time without an offset
+GET {{carriers}}/nordpost/api/track?barcode=NP300001
+
+### 4. Make FastShip unreliable
+PUT {{carriers}}/admin/faults/fastship
+Content-Type: application/json
+
+{ "errorRate": 0.3, "duplicateRate": 0.5, "shuffle": true }
+
+### 5. Send this several times: some 500s, repeated events, random order
+GET {{carriers}}/fastship/v2/shipments/FS300001/events
+
+### 6. Now a strict rate limit
+PUT {{carriers}}/admin/faults/fastship
+Content-Type: application/json
+
+{ "requestsPerMinute": 2 }
+
+### 7. Send three times quickly: the third answers 429 with Retry-After: 60
+GET {{carriers}}/fastship/v2/shipments/FS300001/events
+
+### 8. Back to normal: faults off, every journey starts again
+POST {{carriers}}/admin/reset

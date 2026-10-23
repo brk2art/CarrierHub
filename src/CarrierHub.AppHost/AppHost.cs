@@ -15,4 +15,7 @@ builder.AddProject<Projects.CarrierHub_PublicApi>("publicapi")
     .WaitFor(tracking)
     .WithExternalHttpEndpoints();
 
+// Simulated carriers with faults you can switch on. The Carrier Gateway (next step) talks to them.
+builder.AddProject<Projects.CarrierHub_MockCarriers>("mockcarriers");
+
 builder.Build().Run();
