@@ -147,6 +147,24 @@ public class TrackingApiTests(TrackingApiFixture fixture) : IClassFixture<Tracki
         Assert.True(late[0].IsLate);
     }
 
+    [Fact]
+    public async Task Active_shipments_leave_out_delivered_ones()
+    {
+        var merchant = NewId("m");
+        var activeTracking = NewId("t");
+        var deliveredTracking = NewId("t");
+        await CreateShipmentAsync(merchant, NewId("order"), activeTracking, TimeSpan.FromDays(2));
+        await CreateShipmentAsync(merchant, NewId("order"), deliveredTracking, TimeSpan.FromDays(2));
+        await SendEventAsync(deliveredTracking, "e1", ShipmentStatus.Delivered, fixture.Clock.GetUtcNow().AddHours(1));
+
+        // Lower-case key, while the shipments were created as "FastShip".
+        var active = await Client.GetFromJsonAsync<List<ActiveShipmentResponse>>("/carriers/fastship/active-shipments", Json);
+
+        Assert.NotNull(active);
+        Assert.Contains(active, s => s.TrackingNumber == activeTracking && s.Carrier == "FastShip");
+        Assert.DoesNotContain(active, s => s.TrackingNumber == deliveredTracking);
+    }
+
     private async Task<ShipmentResponse> CreateShipmentAsync(string merchant, string reference, string tracking, TimeSpan promisedIn)
     {
         var response = await Client.PostAsJsonAsync($"/merchants/{merchant}/shipments",

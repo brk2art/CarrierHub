@@ -29,6 +29,8 @@ public sealed record CarrierEventResponse(Guid ShipmentId, EventResult Result, S
         new(shipmentId, o.Result, o.Before, o.After, o.StatusChanged);
 }
 
+public sealed record ActiveShipmentResponse(string Carrier, string TrackingNumber);
+
 public static class ShipmentEndpoints
 {
     public static void MapShipmentEndpoints(this WebApplication app)
@@ -41,6 +43,8 @@ public static class ShipmentEndpoints
 
         // Carrier events, until Phase 2 moves them onto the bus.
         app.MapPost("/carrier-events", AddCarrierEventAsync);
+        // For the Carrier Gateway: what to poll. Phase 3 replaces this with "shipment created" messages.
+        app.MapGet("/carriers/{carrier}/active-shipments", GetActiveShipmentsAsync);
     }
 
     private static async Task<IResult> CreateAsync(string merchantId, CreateShipmentRequest request,
@@ -156,6 +160,24 @@ public static class ShipmentEndpoints
                 db.ChangeTracker.Clear();
             }
         }
+    }
+
+    private static async Task<IResult> GetActiveShipmentsAsync(string carrier, TrackingDbContext db, CancellationToken ct)
+    {
+        // Merchants type the carrier name ("FastShip"); the Gateway uses keys ("fastship"). Compare case-insensitively,
+        // and return the name as stored, so the events the Gateway sends back find their shipment.
+        var key = carrier.ToLowerInvariant();
+
+        var active = await db.Shipments.AsNoTracking()
+            .Where(s => s.Carrier.ToLower() == key
+                && s.Status != ShipmentStatus.Delivered
+                && s.Status != ShipmentStatus.Returned)
+            .OrderBy(s => s.CreatedAt)
+            .Select(s => new ActiveShipmentResponse(s.Carrier, s.TrackingNumber))   // a projection: the events aren't loaded
+            .Take(1000)
+            .ToListAsync(ct);
+
+        return Results.Ok(active);
     }
 
     private static bool IsUniqueViolation(DbUpdateException ex) =>

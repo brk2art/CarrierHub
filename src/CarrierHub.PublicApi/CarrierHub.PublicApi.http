@@ -41,3 +41,51 @@ Authorization: Bearer {{readonly1}}
 ### 7. A token without merchant_id: 403
 GET {{publicapi}}/v1/shipments
 Authorization: Bearer {{nomerchant}}
+
+### 8. A FastShip shipment the Gateway will follow
+POST {{publicapi}}/v1/shipments
+Authorization: Bearer {{merchant1}}
+Content-Type: application/json
+
+{
+  "merchantReference": "ORDER-3001",
+  "carrier": "FastShip",
+  "trackingNumber": "FS400001",
+  "promisedBy": "2026-10-28T18:00:00+01:00"
+}
+
+### 9. A NordPost shipment
+POST {{publicapi}}/v1/shipments
+Authorization: Bearer {{merchant1}}
+Content-Type: application/json
+
+{
+  "merchantReference": "ORDER-3002",
+  "carrier": "NordPost",
+  "trackingNumber": "NP400001",
+  "promisedBy": "2026-10-28T18:00:00+01:00"
+}
+
+### 10. Watch them fill in (send every 30 seconds or so)
+GET {{publicapi}}/v1/shipments?reference=ORDER-3001
+Authorization: Bearer {{merchant1}}
+
+### 11.
+GET {{publicapi}}/v1/shipments?reference=ORDER-3002
+Authorization: Bearer {{merchant1}}
+
+### 12. A FastShip shipment under chaos
+POST {{publicapi}}/v1/shipments
+Authorization: Bearer {{merchant1}}
+Content-Type: application/json
+
+{
+  "merchantReference": "ORDER-3003",
+  "carrier": "FastShip",
+  "trackingNumber": "FS400002",
+  "promisedBy": "2026-10-28T18:00:00+01:00"
+}
+
+### 13. Watch it
+GET {{publicapi}}/v1/shipments?reference=ORDER-3003
+Authorization: Bearer {{merchant1}}

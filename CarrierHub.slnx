@@ -1,12 +1,14 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/CarrierHub.AppHost/CarrierHub.AppHost.csproj" />
+    <Project Path="src/CarrierHub.CarrierGateway/CarrierHub.CarrierGateway.csproj" />
     <Project Path="src/CarrierHub.MockCarriers/CarrierHub.MockCarriers.csproj" />
     <Project Path="src/CarrierHub.PublicApi/CarrierHub.PublicApi.csproj" />
     <Project Path="src/CarrierHub.ServiceDefaults/CarrierHub.ServiceDefaults.csproj" />
     <Project Path="src/CarrierHub.Tracking/CarrierHub.Tracking.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/CarrierHub.CarrierGateway.Tests/CarrierHub.CarrierGateway.Tests.csproj" />
     <Project Path="tests/CarrierHub.PublicApi.Tests/CarrierHub.PublicApi.Tests.csproj" />
     <Project Path="tests/CarrierHub.Tracking.Tests/CarrierHub.Tracking.Tests.csproj" />
   </Folder>

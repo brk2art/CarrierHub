@@ -4,6 +4,7 @@
     <ProjectReference Include="..\CarrierHub.Tracking\CarrierHub.Tracking.csproj" />
     <ProjectReference Include="..\CarrierHub.PublicApi\CarrierHub.PublicApi.csproj" />
     <ProjectReference Include="..\CarrierHub.MockCarriers\CarrierHub.MockCarriers.csproj" />
+    <ProjectReference Include="..\CarrierHub.CarrierGateway\CarrierHub.CarrierGateway.csproj" />
   </ItemGroup>
 
   <ItemGroup>
