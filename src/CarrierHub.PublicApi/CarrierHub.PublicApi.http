@@ -8,9 +8,9 @@ Authorization: Bearer {{merchant1}}
 Content-Type: application/json
 
 {
-  "merchantReference": "ORDER-2001",
+  "merchantReference": "ORDER-2003",
   "carrier": "FastShip",
-  "trackingNumber": "FS200001",
+  "trackingNumber": "FS200003",
   "promisedBy": "2026-10-28T18:00:00+01:00"
 }
 

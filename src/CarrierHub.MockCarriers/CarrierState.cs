@@ -16,7 +16,7 @@ public sealed record HappenedEvent(JourneyStep Step, DateTimeOffset At);
 
 public static class Carriers
 {
-    public static readonly HashSet<string> Known = new(StringComparer.OrdinalIgnoreCase) { "fastship", "nordpost", "parcelgo" };
+    public static readonly HashSet<string> Known = new(StringComparer.OrdinalIgnoreCase) { "fastship", "nordpost", "parcelgo", "merchant" };
 }
 
 // Everything the mock carriers remember. In memory only: a restart starts every journey again.

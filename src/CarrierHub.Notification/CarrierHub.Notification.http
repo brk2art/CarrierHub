@@ -1,0 +1,29 @@
+@notification = https://localhost:7252
+@carriers = https://localhost:7049
+
+### 1. merchant-1 registers a webhook (pointing at the mock merchant): 201, with a secret
+PUT {{notification}}/merchants/merchant-1/webhook
+Content-Type: application/json
+
+{ "url": "https://localhost:7049/merchant-hooks/merchant-1" }
+
+### 2. What the mock merchant received
+GET {{carriers}}/merchant-hooks/merchant-1
+
+### 3. The delivery log
+GET {{notification}}/merchants/merchant-1/deliveries
+
+### 4. Make the merchant's server fail every time
+PUT {{carriers}}/admin/faults/merchant
+Content-Type: application/json
+
+{ "errorRate": 1.0 }
+
+### 5. Fix the merchant's server
+PUT {{carriers}}/admin/faults/merchant
+Content-Type: application/json
+
+{ }
+
+### 6. Replay what was dead-lettered
+POST {{notification}}/admin/dead-letters/replay

@@ -3,6 +3,7 @@ var builder = DistributedApplication.CreateBuilder(args);
 // PostgreSQL in a container; the volume keeps data between runs.
 var postgres = builder.AddPostgres("postgres").WithDataVolume();
 var trackingDb = postgres.AddDatabase("trackingdb");
+var notificationDb = postgres.AddDatabase("notificationdb");
 
 // Redis: the Gateway's memory of which events it already forwarded. No volume on purpose:
 // a restart starts empty, so every measurement run starts from the same point.
@@ -39,6 +40,7 @@ shipmentEvents.AddServiceBusSubscription("notifications")
         subscription.RequiresSession = true;
         subscription.MaxDeliveryCount = 10;
         subscription.DeadLetteringOnMessageExpiration = true;
+        subscription.MaxDeliveryCount = 5;
     });
 
 // Tracking owns shipments and their timeline. Only it talks to trackingdb.
@@ -75,5 +77,12 @@ var gateway = builder.AddProject<Projects.CarrierHub_CarrierGateway>("gateway")
 
 // ParcelGo needs an address to push to: the Gateway's own https endpoint.
 gateway.WithEnvironment("ParcelGo__CallbackBaseUrl", gateway.GetEndpoint("https"));
+
+// Delivers status changes to merchants' own webhook URLs.
+builder.AddProject<Projects.CarrierHub_Notification>("notification")
+    .WithReference(notificationDb)
+    .WaitFor(notificationDb)
+    .WithReference(messaging)
+    .WaitFor(messaging);
 
 builder.Build().Run();

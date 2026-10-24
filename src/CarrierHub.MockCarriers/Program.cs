@@ -7,6 +7,7 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<CarrierState>();
 
 builder.Services.AddSingleton<ParcelGoSubscriptions>();
+builder.Services.AddSingleton<MerchantInbox>();
 builder.Services.AddHttpClient("webhooks");   // ParcelGo calls the Gateway's absolute URL, like a real carrier would
 builder.Services.AddHostedService<ParcelGoWebhookSender>();
 
@@ -16,6 +17,7 @@ app.MapGet("/", () => "CarrierHub Mock Carriers: fastship (JSON), nordpost (XML)
 app.MapFastShip();
 app.MapNordPost();
 app.MapParcelGo();
+app.MapMockMerchant();
 app.MapAdmin();
 app.MapDefaultEndpoints();
 
