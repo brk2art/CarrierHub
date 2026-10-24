@@ -20,6 +20,9 @@ public static class Extensions
 
     public static TBuilder AddServiceDefaults<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
+        // Azure SDK tracing (Service Bus send and process spans) is still opt-in.
+        AppContext.SetSwitch("Azure.Experimental.EnableActivitySource", true);
+
         builder.ConfigureOpenTelemetry();
 
         builder.AddDefaultHealthChecks();
@@ -62,6 +65,9 @@ public static class Extensions
             .WithTracing(tracing =>
             {
                 tracing.AddSource(builder.Environment.ApplicationName)
+                    // Our own spans: the Gateway's shipment polls and the Tracking outbox publisher.
+                    .AddSource("CarrierHub.*")
+                    .AddSource("Azure.Messaging.ServiceBus.*")
                     .AddAspNetCoreInstrumentation(tracing =>
                         // Exclude health check requests from tracing
                         tracing.Filter = context =>

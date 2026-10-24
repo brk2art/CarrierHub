@@ -1,5 +1,6 @@
 ﻿using CarrierHub.Tracking.Domain;
 using Microsoft.EntityFrameworkCore;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -30,6 +31,9 @@ public sealed class TrackingDbContext(DbContextOptions<TrackingDbContext> option
             .Where(s => s.DomainEvents.Count > 0)
             .ToList();
 
+        // The span that caused this change: the HTTP request or the Service Bus message being processed.
+        var traceParent = Activity.Current is { IdFormat: ActivityIdFormat.W3C } current ? current.Id : null;
+
         foreach (var shipment in shipments)
         {
             foreach (var domainEvent in shipment.DomainEvents)
@@ -45,6 +49,7 @@ public sealed class TrackingDbContext(DbContextOptions<TrackingDbContext> option
                         ShipmentStatusChanged c => c.ChangedAt,
                         _ => DateTimeOffset.UtcNow,
                     },
+                    TraceParent = traceParent,
                 });
             }
 
@@ -99,6 +104,7 @@ public sealed class TrackingDbContext(DbContextOptions<TrackingDbContext> option
         outbox.Property(m => m.SessionId).HasMaxLength(100);
         outbox.Property(m => m.Payload).HasColumnType("jsonb");
         outbox.Property(m => m.LastError).HasMaxLength(1000);
+        outbox.Property(m => m.TraceParent).HasMaxLength(64);   // "00-<32 hex>-<16 hex>-<2 hex>" is 55
         // Only unpublished rows are indexed: the publisher's query stays fast however large the table grows.
         outbox.HasIndex(m => m.CreatedAt).HasFilter("\"PublishedAt\" IS NULL");
     }

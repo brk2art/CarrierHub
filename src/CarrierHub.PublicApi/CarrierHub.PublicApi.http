@@ -8,9 +8,9 @@ Authorization: Bearer {{merchant1}}
 Content-Type: application/json
 
 {
-  "merchantReference": "ORDER-2003",
+  "merchantReference": "ORDER-14002",
   "carrier": "FastShip",
-  "trackingNumber": "FS200003",
+  "trackingNumber": "FS1400002",
   "promisedBy": "2026-10-28T18:00:00+01:00"
 }
 
@@ -209,7 +209,7 @@ Content-Type: application/json
 
 ### Webhook: read it back (no secret this time)
 GET {{publicapi}}/v1/webhook
-Authorization: Bearer {{merchant2}}
+Authorization: Bearer {{merchant1}}
 
 ### Webhook: delivery log
 GET {{publicapi}}/v1/webhook/deliveries

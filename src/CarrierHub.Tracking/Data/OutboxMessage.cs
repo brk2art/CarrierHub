@@ -11,4 +11,8 @@ public sealed class OutboxMessage
     public DateTimeOffset? PublishedAt { get; set; }  // null until the bus has it
     public int Attempts { get; set; }
     public string? LastError { get; set; }
+
+    // W3C trace context of the change that wrote this row. The publisher runs later on a timer;
+    // with this it continues the same trace instead of starting a new one.
+    public string? TraceParent { get; init; }
 }
