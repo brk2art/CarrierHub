@@ -50,10 +50,19 @@ var tracking = builder.AddProject<Projects.CarrierHub_Tracking>("tracking")
     .WithReference(messaging)
     .WaitFor(messaging);
 
+// Delivers status changes to merchants' own webhook URLs. Owns the webhooks and the delivery log.
+var notification = builder.AddProject<Projects.CarrierHub_Notification>("notification")
+    .WithReference(notificationDb)
+    .WaitFor(notificationDb)
+    .WithReference(messaging)
+    .WaitFor(messaging);
+
 // The merchant-facing API. It reaches shipment data only through Tracking.
 builder.AddProject<Projects.CarrierHub_PublicApi>("publicapi")
     .WithReference(tracking)
     .WaitFor(tracking)
+    .WithReference(notification)
+    .WaitFor(notification)
     .WithExternalHttpEndpoints();
 
 // Shared by ParcelGo (signs webhooks) and the Gateway (verifies them). The value lives in the AppHost's user secrets.
@@ -77,12 +86,5 @@ var gateway = builder.AddProject<Projects.CarrierHub_CarrierGateway>("gateway")
 
 // ParcelGo needs an address to push to: the Gateway's own https endpoint.
 gateway.WithEnvironment("ParcelGo__CallbackBaseUrl", gateway.GetEndpoint("https"));
-
-// Delivers status changes to merchants' own webhook URLs.
-builder.AddProject<Projects.CarrierHub_Notification>("notification")
-    .WithReference(notificationDb)
-    .WaitFor(notificationDb)
-    .WithReference(messaging)
-    .WaitFor(messaging);
 
 builder.Build().Run();

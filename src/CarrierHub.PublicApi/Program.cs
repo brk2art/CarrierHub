@@ -47,6 +47,7 @@ builder.Services.AddRateLimiter(options =>
 });
 
 builder.Services.AddHttpClient<TrackingClient>(client => client.BaseAddress = new Uri("https+http://tracking"));
+builder.Services.AddHttpClient<NotificationClient>(client => client.BaseAddress = new Uri("https+http://notification"));
 
 var app = builder.Build();
 
@@ -60,6 +61,7 @@ app.UseRateLimiter();   // after authentication, so the merchant is known; rejec
 
 app.MapGet("/", () => "CarrierHub Public API");
 app.MapShipmentEndpoints();
+app.MapWebhookEndpoints();
 app.MapDefaultEndpoints();
 
 app.Run();

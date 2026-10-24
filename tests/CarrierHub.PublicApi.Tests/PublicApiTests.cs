@@ -26,6 +26,7 @@ public class PublicApiTests : IClassFixture<PublicApiFactory>
         _api = api;
         _client = api.CreateClient();
         _api.Tracking.Reset();
+        _api.Notification.Reset();
     }
 
     // Every test uses its own merchants, so they never share a rate-limit bucket.
@@ -139,5 +140,32 @@ public class PublicApiTests : IClassFixture<PublicApiFactory>
         if (body is not null)
             request.Content = JsonContent.Create(body);
         return _client.SendAsync(request);
+    }
+
+    [Fact]
+    public async Task Registering_a_webhook_uses_the_merchant_from_the_token_and_passes_the_secret_on()
+    {
+        _api.Notification.Respond = _ => FakeTracking.Json(HttpStatusCode.Created,
+            """{"merchantId":"internal","url":"https://merchant.example/hooks","secret":"s3cret"}""");
+        var merchant = NewMerchant();
+
+        var response = await SendAsync(HttpMethod.Put, "/v1/webhook", TestTokens.Create(merchant, Scopes.Write),
+            new RegisterWebhookRequest("https://merchant.example/hooks"));
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.Equal($"/merchants/{merchant}/webhook", Assert.Single(_api.Notification.Paths));
+        Assert.Contains("\"secret\":\"s3cret\"", body);
+        Assert.DoesNotContain("merchantId", body);   // internal field, not part of v1
+    }
+
+    [Fact]
+    public async Task A_read_only_token_cannot_change_the_webhook()
+    {
+        var response = await SendAsync(HttpMethod.Put, "/v1/webhook", TestTokens.Create(NewMerchant(), Scopes.Read),
+            new RegisterWebhookRequest("https://merchant.example/hooks"));
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Empty(_api.Notification.Paths);
     }
 }

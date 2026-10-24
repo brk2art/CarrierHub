@@ -199,3 +199,25 @@ Authorization: Bearer {{merchant1}}
 Content-Type: application/json
 
 { "merchantReference": "ORDER-11001", "carrier": "FastShip", "trackingNumber": "FS1100001", "promisedBy": "2026-10-30T18:00:00+01:00" }
+
+### Webhook: merchant-2 registers (201, with the secret, once)
+PUT {{publicapi}}/v1/webhook
+Authorization: Bearer {{merchant2}}
+Content-Type: application/json
+
+{ "url": "https://localhost:7049/merchant-hooks/merchant-2" }
+
+### Webhook: read it back (no secret this time)
+GET {{publicapi}}/v1/webhook
+Authorization: Bearer {{merchant2}}
+
+### Webhook: delivery log
+GET {{publicapi}}/v1/webhook/deliveries
+Authorization: Bearer {{merchant2}}
+
+### Webhook: a read-only token can't change it (403)
+PUT {{publicapi}}/v1/webhook
+Authorization: Bearer {{readonly1}}
+Content-Type: application/json
+
+{ "url": "https://localhost:7049/merchant-hooks/merchant-1" }

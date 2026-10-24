@@ -12,6 +12,8 @@ namespace CarrierHub.PublicApi.Tests;
 public sealed class PublicApiFactory : WebApplicationFactory<Program>
 {
     public FakeTracking Tracking { get; } = new();
+    // The same kind of fake, standing in for the Notification service.
+    public FakeTracking Notification { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -40,6 +42,10 @@ public sealed class PublicApiFactory : WebApplicationFactory<Program>
             services.RemoveAll<TrackingClient>();
             services.AddTransient(_ => new TrackingClient(
                 new HttpClient(Tracking, disposeHandler: false) { BaseAddress = new Uri("http://tracking") }));
+
+            services.RemoveAll<NotificationClient>();
+            services.AddTransient(_ => new NotificationClient(
+                new HttpClient(Notification, disposeHandler: false) { BaseAddress = new Uri("http://notification") }));
         });
     }
 }
