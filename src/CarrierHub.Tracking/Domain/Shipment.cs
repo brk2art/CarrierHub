@@ -2,7 +2,7 @@
 
 public enum EventResult { Added, Duplicate }
 
-// What adding an event did. StatusChanged decides, in Phase 3, whether a notification goes out.
+// What adding an event did. StatusChanged decides whether others are told.
 public sealed record EventOutcome(EventResult Result, ShipmentStatus Before, ShipmentStatus After)
 {
     public bool StatusChanged => Before != After;
@@ -11,6 +11,7 @@ public sealed record EventOutcome(EventResult Result, ShipmentStatus Before, Shi
 public sealed class Shipment
 {
     private readonly List<TrackingEvent> _events = [];
+    private readonly List<IDomainEvent> _domainEvents = [];
 
     public Shipment(string merchantId, string merchantReference, string carrier, string trackingNumber,
         DateTimeOffset promisedBy, DateTimeOffset createdAt)
@@ -30,6 +31,8 @@ public sealed class Shipment
         PromisedBy = promisedBy.ToUniversalTime();
         CreatedAt = createdAt.ToUniversalTime();
         Status = ShipmentStatus.Created;
+
+        _domainEvents.Add(new ShipmentCreated(Id, MerchantId, MerchantReference, Carrier, TrackingNumber, PromisedBy, CreatedAt));
     }
 
     private Shipment() { }   // for EF Core
@@ -60,6 +63,11 @@ public sealed class Shipment
     public IReadOnlyList<TrackingEvent> Timeline =>
         _events.OrderBy(e => e.OccurredAt).ThenBy(e => e.Status).ToList();
 
+    // What happened since the last save. The DbContext turns these into outbox messages, in the same transaction.
+    public IReadOnlyList<IDomainEvent> DomainEvents => _domainEvents;
+
+    public void ClearDomainEvents() => _domainEvents.Clear();
+
     public EventOutcome AddEvent(TrackingEvent trackingEvent)
     {
         ArgumentNullException.ThrowIfNull(trackingEvent);
@@ -70,7 +78,13 @@ public sealed class Shipment
 
         _events.Add(trackingEvent);
         Recalculate();
-        return new EventOutcome(EventResult.Added, before, Status);
+
+        var outcome = new EventOutcome(EventResult.Added, before, Status);
+        if (outcome.StatusChanged)
+            _domainEvents.Add(new ShipmentStatusChanged(Id, MerchantId, MerchantReference, Carrier, TrackingNumber,
+                before, Status, trackingEvent.ReceivedAt));
+
+        return outcome;
     }
 
     // Late: delivered after the promise, or not delivered yet and the promise has passed.

@@ -1,11 +1,56 @@
 ﻿using CarrierHub.Tracking.Domain;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace CarrierHub.Tracking.Data;
 
 public sealed class TrackingDbContext(DbContextOptions<TrackingDbContext> options) : DbContext(options)
 {
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
+    {
+        Converters = { new JsonStringEnumConverter() },
+    };
+
     public DbSet<Shipment> Shipments => Set<Shipment>();
+    public DbSet<OutboxMessage> Outbox => Set<OutboxMessage>();
+
+    // Every save turns the shipments' domain events into outbox rows first, so the change and its
+    // announcement are written in one transaction. There's no other way to save, so nothing can forget it.
+    public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+    {
+        AddOutboxMessages();
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
+    private void AddOutboxMessages()
+    {
+        var shipments = ChangeTracker.Entries<Shipment>()
+            .Select(e => e.Entity)
+            .Where(s => s.DomainEvents.Count > 0)
+            .ToList();
+
+        foreach (var shipment in shipments)
+        {
+            foreach (var domainEvent in shipment.DomainEvents)
+            {
+                Outbox.Add(new OutboxMessage
+                {
+                    Type = domainEvent.GetType().Name,
+                    Payload = JsonSerializer.Serialize(domainEvent, domainEvent.GetType(), Json),
+                    SessionId = shipment.Id.ToString(),
+                    CreatedAt = domainEvent switch
+                    {
+                        ShipmentCreated c => c.CreatedAt,
+                        ShipmentStatusChanged c => c.ChangedAt,
+                        _ => DateTimeOffset.UtcNow,
+                    },
+                });
+            }
+
+            shipment.ClearDomainEvents();
+        }
+    }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -19,6 +64,7 @@ public sealed class TrackingDbContext(DbContextOptions<TrackingDbContext> option
         shipment.Property(s => s.TrackingNumber).HasMaxLength(100);
         shipment.Property(s => s.Status).HasConversion<string>().HasMaxLength(32);
         shipment.Ignore(s => s.Timeline);
+        shipment.Ignore(s => s.DomainEvents);
 
         // Optimistic concurrency on PostgreSQL's xmin system column: when two requests change
         // the same shipment, the second save fails instead of overwriting. No column is added.
@@ -44,5 +90,16 @@ public sealed class TrackingDbContext(DbContextOptions<TrackingDbContext> option
             e.Property(x => x.Description).HasMaxLength(500);
         });
         shipment.Navigation(s => s.Events).UsePropertyAccessMode(PropertyAccessMode.Field);
+
+        var outbox = modelBuilder.Entity<OutboxMessage>();
+        outbox.ToTable("OutboxMessages");
+        outbox.HasKey(m => m.Id);
+        outbox.Property(m => m.Id).ValueGeneratedNever();
+        outbox.Property(m => m.Type).HasMaxLength(100);
+        outbox.Property(m => m.SessionId).HasMaxLength(100);
+        outbox.Property(m => m.Payload).HasColumnType("jsonb");
+        outbox.Property(m => m.LastError).HasMaxLength(1000);
+        // Only unpublished rows are indexed: the publisher's query stays fast however large the table grows.
+        outbox.HasIndex(m => m.CreatedAt).HasFilter("\"PublishedAt\" IS NULL");
     }
 }

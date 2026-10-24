@@ -73,3 +73,21 @@ GET {{tracking}}/carriers/fastship/active-shipments
 
 ### Active NordPost shipments (should be [])
 GET {{tracking}}/carriers/nordpost/active-shipments
+
+### Outbox: what's waiting and what went out
+GET {{tracking}}/outbox
+
+### Outage 1: create a shipment (merchant-1)
+POST {{tracking}}/merchants/merchant-1/shipments
+Content-Type: application/json
+
+{ "merchantReference": "ORDER-OUTAGE-1", "carrier": "FastShip", "trackingNumber": "FSOUT0001", "promisedBy": "2026-10-30T18:00:00+01:00" }
+
+### Outage 2: a status change, sent directly to Tracking
+POST {{tracking}}/carrier-events
+Content-Type: application/json
+
+{ "carrier": "FastShip", "trackingNumber": "FSOUT0001", "carrierEventId": "out-1", "status": "PickedUp", "occurredAt": "2026-10-24T14:00:00+02:00", "location": "Aarhus terminal" }
+
+### Outage 3: check the shipment itself
+GET {{tracking}}/merchants/merchant-1/shipments?reference=ORDER-OUTAGE-1

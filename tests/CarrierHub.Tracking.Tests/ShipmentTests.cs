@@ -158,4 +158,39 @@ public class ShipmentTests
                 yield return [items[i], .. p];
         }
     }
+
+    [Fact]
+    public void A_new_shipment_announces_itself()
+    {
+        var s = NewShipment();
+
+        var created = Assert.IsType<ShipmentCreated>(Assert.Single(s.DomainEvents));
+        Assert.Equal(s.Id, created.ShipmentId);
+    }
+
+    [Fact]
+    public void A_status_change_is_announced_once()
+    {
+        var s = NewShipment();
+        s.ClearDomainEvents();
+
+        s.AddEvent(Event("e1", ShipmentStatus.PickedUp, 1));
+
+        var changed = Assert.IsType<ShipmentStatusChanged>(Assert.Single(s.DomainEvents));
+        Assert.Equal(ShipmentStatus.Created, changed.PreviousStatus);
+        Assert.Equal(ShipmentStatus.PickedUp, changed.Status);
+    }
+
+    [Fact]
+    public void Duplicates_and_events_that_change_nothing_announce_nothing()
+    {
+        var s = NewShipment();
+        s.AddEvent(Event("e2", ShipmentStatus.Delivered, 28));
+        s.ClearDomainEvents();
+
+        s.AddEvent(Event("e2", ShipmentStatus.Delivered, 28));        // the same event again
+        s.AddEvent(Event("e1", ShipmentStatus.OutForDelivery, 24));   // late, and Delivered is final
+
+        Assert.Empty(s.DomainEvents);
+    }
 }

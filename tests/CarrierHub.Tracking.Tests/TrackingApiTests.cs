@@ -4,7 +4,9 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using CarrierHub.Tracking.Api;
 using CarrierHub.Tracking.Domain;
-using Xunit;
+using CarrierHub.Tracking.Data;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace CarrierHub.Tracking.Tests;
 
@@ -163,6 +165,32 @@ public class TrackingApiTests(TrackingApiFixture fixture) : IClassFixture<Tracki
         Assert.NotNull(active);
         Assert.Contains(active, s => s.TrackingNumber == activeTracking && s.Carrier == "FastShip");
         Assert.DoesNotContain(active, s => s.TrackingNumber == deliveredTracking);
+    }
+
+    [Fact]
+    public async Task Each_change_writes_exactly_one_outbox_message_with_it()
+    {
+        var merchant = NewId("m");
+        var tracking = NewId("t");
+        var created = await CreateShipmentAsync(merchant, NewId("order"), tracking, TimeSpan.FromDays(2));
+        var at = fixture.Clock.GetUtcNow();
+
+        await SendEventAsync(tracking, "e1", ShipmentStatus.PickedUp, at.AddHours(1));    // a change
+        await SendEventAsync(tracking, "e1", ShipmentStatus.PickedUp, at.AddHours(1));    // a duplicate: nothing
+        await SendEventAsync(tracking, "e0", ShipmentStatus.PickedUp, at.AddMinutes(30)); // stored, but status stays PickedUp: nothing
+
+        using var scope = fixture.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<TrackingDbContext>();
+        var messages = await db.Outbox.Where(m => m.SessionId == created.Id.ToString()).ToListAsync();
+
+        Assert.Equal(2, messages.Count);
+        Assert.Single(messages, m => m.Type == "ShipmentCreated");
+        var changed = Assert.Single(messages, m => m.Type == "ShipmentStatusChanged");
+        // jsonb stores parsed JSON, not the text: spacing and key order change. Compare values, not strings.
+        using var payload = JsonDocument.Parse(changed.Payload);
+        Assert.Equal(merchant, payload.RootElement.GetProperty("merchantId").GetString());
+        Assert.Equal("PickedUp", payload.RootElement.GetProperty("status").GetString());
+        Assert.All(messages, m => Assert.Null(m.PublishedAt));   // no bus in the tests, so they wait in the outbox
     }
 
     private async Task<ShipmentResponse> CreateShipmentAsync(string merchant, string reference, string tracking, TimeSpan promisedIn)

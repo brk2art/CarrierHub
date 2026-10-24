@@ -19,6 +19,7 @@ if (builder.Configuration.GetConnectionString("messaging") is not null)
 {
     builder.AddAzureServiceBusClient("messaging");
     builder.Services.AddHostedService<CarrierEventConsumer>();
+    builder.Services.AddHostedService<OutboxPublisher>();
 }
 
 var app = builder.Build();
@@ -37,6 +38,20 @@ app.UseHttpsRedirection();
 
 app.MapGet("/", () => "CarrierHub Tracking");
 app.MapShipmentEndpoints();
+
+// Development only: what's waiting in the outbox, and what went out.
+if (app.Environment.IsDevelopment())
+    app.MapGet("/outbox", async (TrackingDbContext db, CancellationToken ct) => new
+    {
+        pending = await db.Outbox.CountAsync(m => m.PublishedAt == null, ct),
+        published = await db.Outbox.CountAsync(m => m.PublishedAt != null, ct),
+        latest = await db.Outbox
+            .OrderByDescending(m => m.CreatedAt)
+            .Take(10)
+            .Select(m => new { m.Type, m.SessionId, m.CreatedAt, m.PublishedAt, m.Attempts, m.LastError })
+            .ToListAsync(ct),
+    });
+
 app.MapDefaultEndpoints();
 
 app.Run();

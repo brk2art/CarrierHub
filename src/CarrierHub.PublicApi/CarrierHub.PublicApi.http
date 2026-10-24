@@ -192,3 +192,10 @@ Authorization: Bearer {{merchant1}}
 ### Bus check: ParcelGo
 GET {{publicapi}}/v1/shipments?reference=ORDER-10003
 Authorization: Bearer {{merchant1}}
+
+### Outbox test: a new FastShip shipment
+POST {{publicapi}}/v1/shipments
+Authorization: Bearer {{merchant1}}
+Content-Type: application/json
+
+{ "merchantReference": "ORDER-11001", "carrier": "FastShip", "trackingNumber": "FS1100001", "promisedBy": "2026-10-30T18:00:00+01:00" }

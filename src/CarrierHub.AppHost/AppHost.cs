@@ -23,6 +23,24 @@ messaging.AddServiceBusQueue("carrier-events")
         queue.DeadLetteringOnMessageExpiration = true;   // an expired message is parked in the dead-letter queue, not deleted
     });
 
+// Shipment events from Tracking's outbox. Each subscription gets its own copy; one session per shipment
+// keeps each shipment's messages in order.
+var shipmentEvents = messaging.AddServiceBusTopic("shipment-events")
+    .WithProperties(topic =>
+    {
+        topic.RequiresDuplicateDetection = true;
+        topic.DuplicateDetectionHistoryTimeWindow = TimeSpan.FromMinutes(5);
+    });
+
+// For the Notification service (next step).
+shipmentEvents.AddServiceBusSubscription("notifications")
+    .WithProperties(subscription =>
+    {
+        subscription.RequiresSession = true;
+        subscription.MaxDeliveryCount = 10;
+        subscription.DeadLetteringOnMessageExpiration = true;
+    });
+
 // Tracking owns shipments and their timeline. Only it talks to trackingdb.
 var tracking = builder.AddProject<Projects.CarrierHub_Tracking>("tracking")
     .WithReference(trackingDb)
