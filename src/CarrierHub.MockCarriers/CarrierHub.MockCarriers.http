@@ -29,3 +29,24 @@ GET {{carriers}}/fastship/v2/shipments/FS300001/events
 
 ### 8. Back to normal: faults off, every journey starts again
 POST {{carriers}}/admin/reset
+
+### Final chaos: reset everything first (clears journeys and the merchant's inbox)
+POST {{carriers}}/admin/reset
+
+### Final chaos: FastShip flaky
+PUT {{carriers}}/admin/faults/fastship
+Content-Type: application/json
+
+{ "errorRate": 0.3, "duplicateRate": 0.5, "shuffle": true }
+
+### Final chaos: ParcelGo duplicates, out of order
+PUT {{carriers}}/admin/faults/parcelgo
+Content-Type: application/json
+
+{ "duplicateRate": 0.5, "shuffle": true }
+
+### Final chaos: the merchant's server fails half the time
+PUT {{carriers}}/admin/faults/merchant
+Content-Type: application/json
+
+{ "errorRate": 0.5 }

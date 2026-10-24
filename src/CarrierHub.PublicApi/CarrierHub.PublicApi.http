@@ -221,3 +221,28 @@ Authorization: Bearer {{readonly1}}
 Content-Type: application/json
 
 { "url": "https://localhost:7049/merchant-hooks/merchant-1" }
+
+### Final chaos: FastShip
+POST {{publicapi}}/v1/shipments
+Authorization: Bearer {{merchant1}}
+Content-Type: application/json
+
+{ "merchantReference": "ORDER-13001", "carrier": "FastShip", "trackingNumber": "FS1300001", "promisedBy": "2026-10-30T18:00:00+01:00" }
+
+### Final chaos: NordPost
+POST {{publicapi}}/v1/shipments
+Authorization: Bearer {{merchant1}}
+Content-Type: application/json
+
+{ "merchantReference": "ORDER-13002", "carrier": "NordPost", "trackingNumber": "NP1300001", "promisedBy": "2026-10-30T18:00:00+01:00" }
+
+### Final chaos: ParcelGo
+POST {{publicapi}}/v1/shipments
+Authorization: Bearer {{merchant1}}
+Content-Type: application/json
+
+{ "merchantReference": "ORDER-13003", "carrier": "ParcelGo", "trackingNumber": "PG1300001", "promisedBy": "2026-10-30T18:00:00+01:00" }
+
+### Delivery log for merchant-1
+GET {{publicapi}}/v1/webhook/deliveries
+Authorization: Bearer {{merchant1}}
