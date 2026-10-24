@@ -120,6 +120,9 @@ public static class ShipmentEndpoints
     private static async Task<IResult> AddCarrierEventAsync(CarrierEventRequest request,
         TrackingDbContext db, TimeProvider clock, CancellationToken ct)
     {
+        if (string.IsNullOrWhiteSpace(request.Carrier) || string.IsNullOrWhiteSpace(request.TrackingNumber))
+            return Results.BadRequest(new { error = "Carrier and tracking number are required." });
+
         var receivedAt = clock.GetUtcNow();
         TrackingEvent NewEvent() => new(request.CarrierEventId, request.Status, request.OccurredAt, receivedAt,
             request.Location, request.Description);
@@ -135,8 +138,10 @@ public static class ShipmentEndpoints
 
         for (var attempt = 1; ; attempt++)
         {
+            // Merchants type "ParcelGo", the Gateway sends "parcelgo": compare case-insensitively.
+            var carrier = request.Carrier.ToLowerInvariant();
             var shipment = await db.Shipments.FirstOrDefaultAsync(
-                s => s.Carrier == request.Carrier && s.TrackingNumber == request.TrackingNumber, ct);
+                s => s.Carrier.ToLower() == carrier && s.TrackingNumber == request.TrackingNumber, ct);
 
             // Phase 2: events for unknown shipments get parked instead of rejected.
             if (shipment is null)

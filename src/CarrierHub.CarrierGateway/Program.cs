@@ -3,6 +3,7 @@
 
 using CarrierHub.CarrierGateway;
 using CarrierHub.CarrierGateway.Adapters;
+using CarrierHub.CarrierGateway.Webhooks;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -27,6 +28,9 @@ AddCarrierClient<FastShipAdapter>(builder, "fastship");
 AddCarrierClient<NordPostAdapter>(builder, "nordpost");
 
 builder.Services.AddHostedService<CarrierPoller>();
+// ParcelGo pushes instead of being polled: subscribe its shipments, receive its webhooks.
+builder.Services.AddHttpClient<ParcelGoClient>(c => c.BaseAddress = new Uri("https+http://mockcarriers"));
+builder.Services.AddHostedService<ParcelGoSubscriber>();
 
 var app = builder.Build();
 
@@ -38,6 +42,7 @@ app.MapGet("/stats", (GatewayMetrics metrics) =>
     var (added, duplicates, skipped) = metrics.Totals;
     return new { added, duplicatesSent = duplicates, skipped };
 });
+app.MapParcelGoWebhook();
 app.MapDefaultEndpoints();
 
 app.Run();

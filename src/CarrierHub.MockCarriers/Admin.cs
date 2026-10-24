@@ -18,10 +18,11 @@ public static class Admin
             return Results.Ok(faults);
         });
 
-        // Clears faults and restarts every journey.
-        admin.MapPost("/reset", (CarrierState state) =>
+        // Clears faults and subscriptions, and restarts every journey.
+        admin.MapPost("/reset", (CarrierState state, ParcelGoSubscriptions subscriptions) =>
         {
             state.Reset();
+            subscriptions.Clear();
             return Results.NoContent();
         });
     }

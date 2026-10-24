@@ -111,3 +111,14 @@ Authorization: Bearer {{merchant1}}
 ### Isolation 4: watch NordPost (stuck while it's down, catches up after the reset)
 GET {{publicapi}}/v1/shipments?reference=ORDER-7002
 Authorization: Bearer {{merchant1}}
+
+### ParcelGo: pushes instead of being polled
+POST {{publicapi}}/v1/shipments
+Authorization: Bearer {{merchant1}}
+Content-Type: application/json
+
+{ "merchantReference": "ORDER-8001", "carrier": "ParcelGo", "trackingNumber": "PG800001", "promisedBy": "2026-10-30T18:00:00+01:00" }
+
+### Watch it
+GET {{publicapi}}/v1/shipments?reference=ORDER-8001
+Authorization: Bearer {{merchant1}}

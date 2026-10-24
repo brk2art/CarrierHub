@@ -1,0 +1,14 @@
+@gateway = https://localhost:7114
+
+### No signature: 401
+POST {{gateway}}/webhooks/parcelgo
+Content-Type: application/json
+
+{"event_id":"fake-1","tracking_number":"PG800001","status":"delivered","occurred_at":1792800000,"location":"Nowhere"}
+
+### A made-up signature: 401
+POST {{gateway}}/webhooks/parcelgo
+Content-Type: application/json
+ParcelGo-Signature: t=1792800000,v1=0000000000000000000000000000000000000000000000000000000000000000
+
+{"event_id":"fake-2","tracking_number":"PG800001","status":"delivered","occurred_at":1792800000,"location":"Nowhere"}
