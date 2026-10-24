@@ -1,4 +1,5 @@
 @gateway = https://localhost:7114
+@carriers = https://localhost:7049
 
 ### No signature: 401
 POST {{gateway}}/webhooks/parcelgo
@@ -12,3 +13,27 @@ Content-Type: application/json
 ParcelGo-Signature: t=1792800000,v1=0000000000000000000000000000000000000000000000000000000000000000
 
 {"event_id":"fake-2","tracking_number":"PG800001","status":"delivered","occurred_at":1792800000,"location":"Nowhere"}
+
+### Chaos: FastShip flaky
+PUT {{carriers}}/admin/faults/fastship
+Content-Type: application/json
+
+{ "errorRate": 0.3, "duplicateRate": 0.5, "shuffle": true, "latencyMs": 300 }
+
+### Chaos: NordPost hangs
+PUT {{carriers}}/admin/faults/nordpost
+Content-Type: application/json
+
+{ "latencyMs": 20000 }
+
+### Chaos: ParcelGo duplicates, out of order
+PUT {{carriers}}/admin/faults/parcelgo
+Content-Type: application/json
+
+{ "duplicateRate": 0.5, "shuffle": true }
+
+### Heal NordPost only (faults off, journeys keep running)
+PUT {{carriers}}/admin/faults/nordpost
+Content-Type: application/json
+
+{ }

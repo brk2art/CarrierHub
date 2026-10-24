@@ -122,3 +122,40 @@ Content-Type: application/json
 ### Watch it
 GET {{publicapi}}/v1/shipments?reference=ORDER-8001
 Authorization: Bearer {{merchant1}}
+
+### Chaos run: FastShip
+POST {{publicapi}}/v1/shipments
+Authorization: Bearer {{merchant1}}
+Content-Type: application/json
+
+{ "merchantReference": "ORDER-9001", "carrier": "FastShip", "trackingNumber": "FS900001", "promisedBy": "2026-10-30T18:00:00+01:00" }
+
+### Chaos run: NordPost
+POST {{publicapi}}/v1/shipments
+Authorization: Bearer {{merchant1}}
+Content-Type: application/json
+
+{ "merchantReference": "ORDER-9002", "carrier": "NordPost", "trackingNumber": "NP900001", "promisedBy": "2026-10-30T18:00:00+01:00" }
+
+### Chaos run: ParcelGo
+POST {{publicapi}}/v1/shipments
+Authorization: Bearer {{merchant1}}
+Content-Type: application/json
+
+{ "merchantReference": "ORDER-9003", "carrier": "ParcelGo", "trackingNumber": "PG900001", "promisedBy": "2026-10-30T18:00:00+01:00" }
+
+### Chaos run: all three
+GET {{publicapi}}/v1/shipments?status=Delivered
+Authorization: Bearer {{merchant1}}
+
+### Chaos check: FastShip
+GET {{publicapi}}/v1/shipments?reference=ORDER-9001
+Authorization: Bearer {{merchant1}}
+
+### Chaos check: NordPost
+GET {{publicapi}}/v1/shipments?reference=ORDER-9002
+Authorization: Bearer {{merchant1}}
+
+### Chaos check: ParcelGo
+GET {{publicapi}}/v1/shipments?reference=ORDER-9003
+Authorization: Bearer {{merchant1}}
