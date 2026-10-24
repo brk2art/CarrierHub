@@ -1,24 +1,62 @@
-﻿using Azure.Messaging.ServiceBus;
+﻿using System.Diagnostics;
+using System.Diagnostics.Metrics;
+using Azure.Messaging.ServiceBus;
 using CarrierHub.Tracking.Data;
 using Microsoft.EntityFrameworkCore;
 using OpenTelemetry;
-using System.Diagnostics;
 
 namespace CarrierHub.Tracking.Application;
 
 // Moves outbox rows onto the "shipment-events" topic. Every row is published at least once.
-public sealed class OutboxPublisher(ServiceBusClient client, IServiceScopeFactory scopes, TimeProvider clock,
-    ILogger<OutboxPublisher> logger) : BackgroundService
+public sealed class OutboxPublisher : BackgroundService
 {
     public const string TopicName = "shipment-events";
     private const int BatchSize = 50;
 
     private static readonly ActivitySource Source = new("CarrierHub.Tracking.Outbox");
 
+    private readonly ServiceBusClient _client;
+    private readonly IServiceScopeFactory _scopes;
+    private readonly TimeProvider _clock;
+    private readonly ILogger<OutboxPublisher> _logger;
+    private readonly Histogram<double> _wait;
+    private readonly Histogram<int> _batchSize;
+    private readonly Counter<long> _failures;
+
+    public OutboxPublisher(ServiceBusClient client, IServiceScopeFactory scopes, TimeProvider clock,
+        IMeterFactory meters, ILogger<OutboxPublisher> logger)
+    {
+        _client = client;
+        _scopes = scopes;
+        _clock = clock;
+        _logger = logger;
+
+        var meter = meters.Create("CarrierHub.Tracking.Outbox");
+
+        // How long a row waited between the save and the bus. The default buckets are made for
+        // milliseconds; ours are seconds, so they're set to where the outbox actually lives (0–1 s, more in outages).
+        _wait = meter.CreateHistogram<double>("carrierhub.outbox.wait", "s",
+            "Time from the change being saved to its message being on the bus",
+            tags: null,
+            advice: new InstrumentAdvice<double>
+            {
+                HistogramBucketBoundaries = [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 1, 1.5, 2.5, 5, 10, 30, 60, 300],
+            });
+
+        // Rows found per check. Always 50 means the publisher is falling behind.
+        _batchSize = meter.CreateHistogram<int>("carrierhub.outbox.batch_size", "{message}",
+            "Rows found per publisher check (empty checks not counted)",
+            tags: null,
+            advice: new InstrumentAdvice<int> { HistogramBucketBoundaries = [1, 2, 5, 10, 25, 50] });
+
+        _failures = meter.CreateCounter<long>("carrierhub.outbox.publish_failures", "{message}",
+            "Sends to the bus that failed; the row waits for the next check");
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await using var sender = client.CreateSender(TopicName);
-        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1), clock);
+        await using var sender = _client.CreateSender(TopicName);
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1), _clock);
 
         while (await timer.WaitForNextTickAsync(stoppingToken))
         {
@@ -29,7 +67,7 @@ public sealed class OutboxPublisher(ServiceBusClient client, IServiceScopeFactor
             }
             catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
             {
-                logger.LogWarning(ex, "Outbox publishing failed; trying again in a second");
+                _logger.LogWarning(ex, "Outbox publishing failed; trying again in a second");
             }
         }
     }
@@ -40,7 +78,7 @@ public sealed class OutboxPublisher(ServiceBusClient client, IServiceScopeFactor
         // and the dashboard dropped the real ones to make room. Only actual publishes are traced (PublishOneAsync).
         using var quiet = SuppressInstrumentationScope.Begin();
 
-        using var scope = scopes.CreateScope();
+        using var scope = _scopes.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<TrackingDbContext>();
 
         // Aspire turns on retries for database calls; a transaction we open ourselves must run inside them.
@@ -58,6 +96,9 @@ public sealed class OutboxPublisher(ServiceBusClient client, IServiceScopeFactor
                     FOR UPDATE SKIP LOCKED
                     """)
                 .ToListAsync(ct);
+
+            if (batch.Count > 0)
+                _batchSize.Record(batch.Count);
 
             var published = 0;
             foreach (var message in batch)
@@ -81,8 +122,10 @@ public sealed class OutboxPublisher(ServiceBusClient client, IServiceScopeFactor
         using var activity = Source.StartActivity("outbox publish", ActivityKind.Internal, parent);
         activity?.SetTag("messaging.destination.name", TopicName);
         activity?.SetTag("carrierhub.outbox.type", message.Type);
+
+        var waited = _clock.GetUtcNow() - message.CreatedAt;
         // How long the row waited: the gap you see in the trace between the change and its publish.
-        activity?.SetTag("carrierhub.outbox.wait_ms", (clock.GetUtcNow() - message.CreatedAt).TotalMilliseconds);
+        activity?.SetTag("carrierhub.outbox.wait_ms", waited.TotalMilliseconds);
 
         try
         {
@@ -94,7 +137,8 @@ public sealed class OutboxPublisher(ServiceBusClient client, IServiceScopeFactor
                 ContentType = "application/json",
             }, ct);
 
-            message.PublishedAt = clock.GetUtcNow();
+            message.PublishedAt = _clock.GetUtcNow();
+            _wait.Record(waited.TotalSeconds, new KeyValuePair<string, object?>("carrierhub.outbox.type", message.Type));
             return true;
         }
         catch (Exception ex) when (ex is ServiceBusException or TimeoutException)
@@ -102,7 +146,8 @@ public sealed class OutboxPublisher(ServiceBusClient client, IServiceScopeFactor
             message.Attempts++;
             message.LastError = ex.Message.Length > 1000 ? ex.Message[..1000] : ex.Message;
             activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
-            logger.LogWarning(ex, "Could not publish outbox message {Id}; it waits for the next try", message.Id);
+            _failures.Add(1);
+            _logger.LogWarning(ex, "Could not publish outbox message {Id}; it waits for the next try", message.Id);
             return false;
         }
     }

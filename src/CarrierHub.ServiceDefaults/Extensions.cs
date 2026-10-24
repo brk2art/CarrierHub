@@ -60,7 +60,9 @@ public static class Extensions
             {
                 metrics.AddAspNetCoreInstrumentation()
                     .AddHttpClientInstrumentation()
-                    .AddRuntimeInstrumentation();
+                    .AddRuntimeInstrumentation()
+                    // Our own meters: outbox wait, webhook delivery time, gateway counters.
+                    .AddMeter("CarrierHub.*");
             })
             .WithTracing(tracing =>
             {
