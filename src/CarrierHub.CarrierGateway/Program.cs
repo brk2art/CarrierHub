@@ -9,6 +9,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
 builder.AddRedisClient("redis");   // connection string comes from Aspire
+builder.AddAzureServiceBusClient("messaging");   // connection string comes from Aspire
 
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.Configure<PollingOptions>(builder.Configuration.GetSection("Polling"));
@@ -17,6 +18,7 @@ builder.Services.Configure<DedupeOptions>(builder.Configuration.GetSection("Dedu
 builder.Services.AddSingleton<GatewayMetrics>();
 builder.Services.AddSingleton<ForwardedEvents>();
 builder.Services.AddSingleton<CarrierRateLimiter>();
+builder.Services.AddSingleton<CarrierEventPublisher>();
 
 // Our own meter, next to the ASP.NET Core and HttpClient metrics that ServiceDefaults already exports.
 builder.Services.AddOpenTelemetry().WithMetrics(metrics => metrics.AddMeter(GatewayMetrics.MeterName));
@@ -39,8 +41,8 @@ app.MapGet("/", () => "CarrierHub Carrier Gateway");   // ParcelGo's webhook end
 // The Gateway's counts since it started: what Run A and Run B compare.
 app.MapGet("/stats", (GatewayMetrics metrics) =>
 {
-    var (added, duplicates, skipped) = metrics.Totals;
-    return new { added, duplicatesSent = duplicates, skipped };
+    var (published, skipped) = metrics.Totals;
+    return new { published, skipped };
 });
 app.MapParcelGoWebhook();
 app.MapDefaultEndpoints();

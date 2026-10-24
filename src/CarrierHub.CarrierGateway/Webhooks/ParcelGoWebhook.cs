@@ -29,7 +29,7 @@ public static class ParcelGoWebhook
             : (payload.TrackingNumber, new ParseResult([], [payload.Status]));
     }
 
-    private static async Task<IResult> HandleAsync(HttpRequest request, IConfiguration config, TrackingClient tracking,
+    private static async Task<IResult> HandleAsync(HttpRequest request, IConfiguration config, CarrierEventPublisher publisher,
         ForwardedEvents forwarded, GatewayMetrics metrics, TimeProvider clock, ILoggerFactory loggers, CancellationToken ct)
     {
         var logger = loggers.CreateLogger("CarrierHub.CarrierGateway.ParcelGoWebhook");
@@ -86,25 +86,15 @@ public static class ParcelGoWebhook
 
         try
         {
-            var result = await tracking.SendEventAsync(shipment, e, ct);
-            metrics.Record(Carrier, result.Result == "Duplicate" ? GatewayMetrics.Duplicate : GatewayMetrics.Added);
+            await publisher.PublishAsync(shipment, e, ct);
+            metrics.Record(Carrier, GatewayMetrics.Published);
             await forwarded.MarkForwardedAsync(Carrier, shipment, e.CarrierEventId);
-
-            if (result.StatusChanged)
-                logger.LogInformation("{Carrier} {TrackingNumber} is now {Status}", Carrier, trackingNumber, e.Status);
-
-            return Results.Ok();   // only now: Tracking has the event
+            return Results.Ok();   // only now: the event is on the bus, which is durable
         }
-        catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        catch (Exception ex) when (ex is Azure.Messaging.ServiceBus.ServiceBusException or TimeoutException)
         {
-            // A shipment we don't know: retrying won't help. Phase 3 parks these instead of dropping them.
-            logger.LogWarning("ParcelGo sent an event for unknown shipment {TrackingNumber}", trackingNumber);
-            return Results.Ok();
-        }
-        catch (Exception ex) when (ex is HttpRequestException or ExecutionRejectedException)
-        {
-            // We couldn't store it. Say so: ParcelGo retries, and nothing is lost.
-            logger.LogWarning(ex, "Could not forward a ParcelGo event; asking ParcelGo to retry");
+            // Not on the bus. Say so: ParcelGo retries, and nothing is lost.
+            logger.LogWarning(ex, "Could not publish a ParcelGo event; asking ParcelGo to retry");
             return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
         }
     }

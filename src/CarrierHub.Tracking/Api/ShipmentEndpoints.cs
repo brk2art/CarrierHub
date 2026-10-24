@@ -1,4 +1,5 @@
-﻿using CarrierHub.Tracking.Data;
+﻿using CarrierHub.Tracking.Application;
+using CarrierHub.Tracking.Data;
 using CarrierHub.Tracking.Domain;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -120,51 +121,14 @@ public static class ShipmentEndpoints
     private static async Task<IResult> AddCarrierEventAsync(CarrierEventRequest request,
         TrackingDbContext db, TimeProvider clock, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(request.Carrier) || string.IsNullOrWhiteSpace(request.TrackingNumber))
-            return Results.BadRequest(new { error = "Carrier and tracking number are required." });
+        var result = await CarrierEvents.ApplyAsync(db, request, clock.GetUtcNow(), ct);
 
-        var receivedAt = clock.GetUtcNow();
-        TrackingEvent NewEvent() => new(request.CarrierEventId, request.Status, request.OccurredAt, receivedAt,
-            request.Location, request.Description);
-
-        try
+        return result.Status switch
         {
-            NewEvent();   // validate once before touching the database
-        }
-        catch (ArgumentException ex)
-        {
-            return Results.BadRequest(new { error = ex.Message });
-        }
-
-        for (var attempt = 1; ; attempt++)
-        {
-            // Merchants type "ParcelGo", the Gateway sends "parcelgo": compare case-insensitively.
-            var carrier = request.Carrier.ToLowerInvariant();
-            var shipment = await db.Shipments.FirstOrDefaultAsync(
-                s => s.Carrier.ToLower() == carrier && s.TrackingNumber == request.TrackingNumber, ct);
-
-            // Phase 2: events for unknown shipments get parked instead of rejected.
-            if (shipment is null)
-                return Results.NotFound(new { error = $"No shipment for {request.Carrier} {request.TrackingNumber}." });
-
-            var outcome = shipment.AddEvent(NewEvent());
-            if (outcome.Result == EventResult.Duplicate)
-                return Results.Ok(CarrierEventResponse.From(shipment.Id, outcome));
-
-            try
-            {
-                await db.SaveChangesAsync(ct);
-                return Results.Ok(CarrierEventResponse.From(shipment.Id, outcome));
-            }
-            // A save only fails because another request saved this shipment first. So with N requests at once,
-            // N attempts are always enough. Phase 3 removes the race: Service Bus sessions give one writer per shipment.
-            catch (DbUpdateException ex) when (attempt < 5 && (ex is DbUpdateConcurrencyException || IsUniqueViolation(ex)))
-            {
-                // Another request changed this shipment at the same moment. Forget what we loaded and start
-                // again from the database; if it was the same event, the domain now reports a duplicate.
-                db.ChangeTracker.Clear();
-            }
-        }
+            ApplyStatus.Invalid => Results.BadRequest(new { error = result.Error }),
+            ApplyStatus.UnknownShipment => Results.NotFound(new { error = result.Error }),
+            _ => Results.Ok(CarrierEventResponse.From(result.ShipmentId!.Value, result.Outcome!)),
+        };
     }
 
     private static async Task<IResult> GetActiveShipmentsAsync(string carrier, TrackingDbContext db, CancellationToken ct)

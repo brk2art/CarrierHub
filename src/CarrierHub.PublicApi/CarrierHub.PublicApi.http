@@ -159,3 +159,36 @@ Authorization: Bearer {{merchant1}}
 ### Chaos check: ParcelGo
 GET {{publicapi}}/v1/shipments?reference=ORDER-9003
 Authorization: Bearer {{merchant1}}
+
+### Bus: FastShip
+POST {{publicapi}}/v1/shipments
+Authorization: Bearer {{merchant1}}
+Content-Type: application/json
+
+{ "merchantReference": "ORDER-10001", "carrier": "FastShip", "trackingNumber": "FS1000001", "promisedBy": "2026-10-30T18:00:00+01:00" }
+
+### Bus: NordPost
+POST {{publicapi}}/v1/shipments
+Authorization: Bearer {{merchant1}}
+Content-Type: application/json
+
+{ "merchantReference": "ORDER-10002", "carrier": "NordPost", "trackingNumber": "NP1000001", "promisedBy": "2026-10-30T18:00:00+01:00" }
+
+### Bus: ParcelGo
+POST {{publicapi}}/v1/shipments
+Authorization: Bearer {{merchant1}}
+Content-Type: application/json
+
+{ "merchantReference": "ORDER-10003", "carrier": "ParcelGo", "trackingNumber": "PG1000001", "promisedBy": "2026-10-30T18:00:00+01:00" }
+
+### Bus check: FastShip
+GET {{publicapi}}/v1/shipments?reference=ORDER-10001
+Authorization: Bearer {{merchant1}}
+
+### Bus check: NordPost
+GET {{publicapi}}/v1/shipments?reference=ORDER-10002
+Authorization: Bearer {{merchant1}}
+
+### Bus check: ParcelGo
+GET {{publicapi}}/v1/shipments?reference=ORDER-10003
+Authorization: Bearer {{merchant1}}

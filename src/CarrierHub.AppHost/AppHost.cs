@@ -8,10 +8,27 @@ var trackingDb = postgres.AddDatabase("trackingdb");
 // a restart starts empty, so every measurement run starts from the same point.
 var redis = builder.AddRedis("redis");
 
+// Azure Service Bus, locally as the emulator (the emulator plus a SQL Server it stores messages in).
+var messaging = builder.AddAzureServiceBus("messaging").RunAsEmulator();
+
+// Carrier events from the Gateway to Tracking. One session per shipment: Tracking handles a shipment's
+// events one at a time, so they no longer race each other.
+messaging.AddServiceBusQueue("carrier-events")
+    .WithProperties(queue =>
+    {
+        queue.RequiresSession = true;
+        queue.RequiresDuplicateDetection = true;                               // same MessageId within the window: dropped
+        queue.DuplicateDetectionHistoryTimeWindow = TimeSpan.FromMinutes(5);   // the emulator's maximum; Azure allows more
+        queue.MaxDeliveryCount = 10;                                           // then the dead-letter queue
+        queue.DeadLetteringOnMessageExpiration = true;   // an expired message is parked in the dead-letter queue, not deleted
+    });
+
 // Tracking owns shipments and their timeline. Only it talks to trackingdb.
 var tracking = builder.AddProject<Projects.CarrierHub_Tracking>("tracking")
     .WithReference(trackingDb)
-    .WaitFor(trackingDb);
+    .WaitFor(trackingDb)
+    .WithReference(messaging)
+    .WaitFor(messaging);
 
 // The merchant-facing API. It reaches shipment data only through Tracking.
 builder.AddProject<Projects.CarrierHub_PublicApi>("publicapi")
@@ -34,6 +51,8 @@ var gateway = builder.AddProject<Projects.CarrierHub_CarrierGateway>("gateway")
     .WaitFor(tracking)
     .WithReference(redis)
     .WaitFor(redis)
+    .WithReference(messaging)
+    .WaitFor(messaging)
     .WithEnvironment("ParcelGo__WebhookSecret", parcelGoSecret);
 
 // ParcelGo needs an address to push to: the Gateway's own https endpoint.

@@ -16,11 +16,12 @@ public sealed class DedupeOptions
 
 // Polls every carrier for its active shipments and forwards what's new to Tracking.
 public sealed class CarrierPoller(IServiceScopeFactory scopes, IOptions<PollingOptions> polling, IOptions<DedupeOptions> dedupe,
-    ForwardedEvents forwarded, GatewayMetrics metrics, TimeProvider clock, ILogger<CarrierPoller> logger) : BackgroundService
+    ForwardedEvents forwarded, CarrierEventPublisher publisher, GatewayMetrics metrics, TimeProvider clock, 
+    ILogger<CarrierPoller> logger) : BackgroundService
 {
     private sealed class Round
     {
-        public int Added, Duplicates, Skipped;
+        public int Published, Skipped;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -78,11 +79,11 @@ public sealed class CarrierPoller(IServiceScopeFactory scopes, IOptions<PollingO
             logger.LogWarning("{Carrier}: circuit open, skipping the rest of this round", adapter.Carrier);
         }
 
-        var (added, duplicates, skipped) = metrics.Totals;
+        var (published, skipped) = metrics.Totals;
         logger.LogInformation(
-            "{Carrier} round: {Shipments} active, {Added} added, {Duplicates} duplicates sent, {Skipped} skipped. " +
-            "Since start: {TotalAdded} added, {TotalDuplicates} duplicates sent, {TotalSkipped} skipped",
-            adapter.Carrier, active.Count, round.Added, round.Duplicates, round.Skipped, added, duplicates, skipped);
+            "{Carrier} round: {Shipments} active, {Published} published, {Skipped} skipped. " +
+               "Since start: {TotalPublished} published, {TotalSkipped} skipped",
+            adapter.Carrier, active.Count, round.Published, round.Skipped, published, skipped);
     }
 
     private async Task PollShipmentAsync(ICarrierAdapter adapter, TrackingClient tracking, ActiveShipment shipment,
@@ -108,25 +109,13 @@ public sealed class CarrierPoller(IServiceScopeFactory scopes, IOptions<PollingO
                     continue;
                 }
 
-                var result = await tracking.SendEventAsync(shipment, e, ct);
+                await publisher.PublishAsync(shipment, e, ct);
+                round.Published++;
+                metrics.Record(adapter.Carrier, GatewayMetrics.Published);
 
-                if (result.Result == "Duplicate")
-                {
-                    round.Duplicates++;
-                    metrics.Record(adapter.Carrier, GatewayMetrics.Duplicate);
-                }
-                else
-                {
-                    round.Added++;
-                    metrics.Record(adapter.Carrier, GatewayMetrics.Added);
-                }
-
+                // Recorded only after the bus accepted it, so a crash in between means "publish again", never "lost".
                 if (dedupe.Value.Enabled)
                     await forwarded.MarkForwardedAsync(adapter.Carrier, shipment, e.CarrierEventId);
-
-                if (result.StatusChanged)
-                    logger.LogInformation("{Carrier} {TrackingNumber} is now {Status}",
-                        adapter.Carrier, shipment.TrackingNumber, e.Status);
             }
         }
         catch (Exception ex) when (ex is CarrierRateLimitedException or BrokenCircuitException)
