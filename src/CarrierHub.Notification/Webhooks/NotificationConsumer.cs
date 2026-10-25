@@ -5,7 +5,7 @@ namespace CarrierHub.Notification.Webhooks;
 
 // Reads the "notifications" subscription of the shipment-events topic. One session per shipment:
 // a shipment's messages are delivered in order, and a failing one holds up only its own shipment.
-public sealed class NotificationConsumer(ServiceBusClient client, IServiceScopeFactory scopes,
+public sealed class NotificationConsumer(ServiceBusClient client, IServiceScopeFactory scopes, IConfiguration configuration,
     ILogger<NotificationConsumer> logger) : BackgroundService
 {
     public const string TopicName = "shipment-events";
@@ -17,10 +17,13 @@ public sealed class NotificationConsumer(ServiceBusClient client, IServiceScopeF
     {
         _processor = client.CreateSessionProcessor(TopicName, SubscriptionName, new ServiceBusSessionProcessorOptions
         {
-            MaxConcurrentSessions = 8,
-            MaxConcurrentCallsPerSession = 1,
+            // Every shipment is its own session, and it usually has one message waiting. A session keeps its slot
+            // until it has been idle for SessionIdleTimeout. With 8 slots and 2 s that was about 3 messages a second
+            // (measured in the capacity test); many slots and a short idle let a slot move on to the next shipment.
+            MaxConcurrentSessions = configuration.GetValue("ServiceBus:MaxConcurrentSessions", 32),
+            MaxConcurrentCallsPerSession = 1,       // one message at a time per shipment: order is kept
             AutoCompleteMessages = false,
-            SessionIdleTimeout = TimeSpan.FromSeconds(2),
+            SessionIdleTimeout = configuration.GetValue("ServiceBus:SessionIdleTimeout", TimeSpan.FromMilliseconds(200)),
         });
 
         _processor.ProcessMessageAsync += HandleAsync;

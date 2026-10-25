@@ -9,7 +9,7 @@ namespace CarrierHub.Tracking.Application;
 // Reads carrier events from Service Bus. One session per shipment: a shipment's events are handled one at a time,
 // different shipments in parallel.
 public sealed class CarrierEventConsumer(ServiceBusClient client, IServiceScopeFactory scopes, TimeProvider clock,
-    ILogger<CarrierEventConsumer> logger) : BackgroundService
+    IConfiguration configuration, ILogger<CarrierEventConsumer> logger) : BackgroundService
 {
     public const string QueueName = "carrier-events";
 
@@ -24,10 +24,12 @@ public sealed class CarrierEventConsumer(ServiceBusClient client, IServiceScopeF
     {
         _processor = client.CreateSessionProcessor(QueueName, new ServiceBusSessionProcessorOptions
         {
-            MaxConcurrentSessions = 8,              // up to 8 shipments at once
-            MaxConcurrentCallsPerSession = 1,       // but one event at a time per shipment
+            // Many shipments, each with a message or two waiting: many slots and a short idle, so a slot doesn't sit
+            // waiting on a shipment with nothing more to say. 8 slots and 2 s fell behind at 5 shipments/s (ADR 12).
+            MaxConcurrentSessions = configuration.GetValue("ServiceBus:MaxConcurrentSessions", 32),
+            MaxConcurrentCallsPerSession = 1,       // one event at a time per shipment
             AutoCompleteMessages = false,           // we decide: complete, or dead-letter with a reason
-            SessionIdleTimeout = TimeSpan.FromSeconds(2),
+            SessionIdleTimeout = configuration.GetValue("ServiceBus:SessionIdleTimeout", TimeSpan.FromMilliseconds(200)),
         });
 
         _processor.ProcessMessageAsync += HandleAsync;
