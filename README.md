@@ -5,7 +5,7 @@ unreliable APIs, turns them into one correct timeline per shipment, and serves i
 a secure public API and signed webhooks. An AI ops assistant will answer questions about shipments
 through the same API, with the caller's permissions.
 
-**Status:** Phase 3 of 7 done (messaging). [Roadmap](#roadmap)
+**Status:** Phase 4 of 7 done (observability and load). [Roadmap](#roadmap)
 
 ## Architecture today
 
@@ -31,6 +31,23 @@ and the merchant are simulated (`CarrierHub.MockCarriers`) so their failures can
 errors, latency, duplicates, shuffled order and rate limits.
 
 ## What works
+
+**Observability and load (Phase 4)**
+- **One trace per carrier event**, from the carrier poll or webhook to the merchant's webhook: 23 spans across
+  7 services. Trace context crosses both Service Bus hops and the outbox (each outbox row stores the
+  `traceparent` of the change). ([ADR 10](docs/adr/0010-one-trace-per-carrier-event.md))
+- **A metric for each hop**: carrier event age at the Gateway, poll gap and deferred polls, outbox wait and
+  batch size, webhook delivery time and outcomes, created → delivered seen. Histograms with buckets in
+  seconds and exemplars that link to the trace.
+- **Polling within a carrier's request budget**: the limit is `RequestsPerMinute × interval / 60` active
+  shipments per carrier, and deferred polls above zero are the alarm. A fair-share mode was measured and
+  kept off. ([ADR 11](docs/adr/0011-polling-within-a-carrier-budget.md))
+- **k6 load tests** (`tests/load/shipments.js`): a constant arrival rate, several stages in one run, any mix of
+  carriers. Each parcel is booked with its mock carrier first, so the carrier's clock starts at creation.
+- **Fixes the load tests found**: session consumers with many slots and a short idle, a fail-fast Gateway
+  webhook (4 s budget, then 503 + `Retry-After`), short Service Bus attempt timeouts, and a batched outbox
+  (one round trip per 50 messages). ([ADR 12](docs/adr/0012-session-consumers-and-the-local-ceiling.md),
+  [ADR 13](docs/adr/0013-what-limited-throughput-locally.md))
 
 **Messaging (Phase 3)**
 - **Carrier events travel over Azure Service Bus.** One session per shipment keeps its events in order
@@ -72,6 +89,21 @@ errors, latency, duplicates, shuffled order and rate limits.
   service is down.
 
 ## Measured results
+
+**Phase 4: observability and load**
+
+| What | Result |
+|---|---|
+| One event, cold and warm | The whole trace took **2.7 s** for the first event after a start (first queue connection 570 ms, Notification's first message 1.6 s) and **0.18 s** warm. At the API, the first 10 s after a start had a P95 of 4.0 s and one failed request; warm P95 is 15 ms. |
+| API under load (k6, 5 → 10 → 20 shipments/s) | Create P95 **13–16 ms** at every rate, 0 errors. At 20/s the per-merchant limit (10/s) answered 429 for half the requests, as designed. |
+| Polling budget (NordPost, 30 requests/min, 1 shipment/s) | 83% of poll turns deferred. Created → delivered seen: P50 180 s, P99 300 s, on journeys of 120–210 s. Fair-share polling: P50 240 s, same P99. |
+| Pipeline behind the API | Five limits in turn: the merchant limit, session consumers (~2.75 webhooks/s), the sequential mock carrier (~6 events/s), the one-at-a-time outbox (~5 messages/s), then the Service Bus emulator itself, where one send stalled for **27.35 s** while normal batch sends took 28–37 ms. |
+
+Lesson: k6 was green while webhooks were minutes late. Latency of finished work hides a queue; what shows it is
+comparing what goes into a hop with what comes out, then opening the trace of one slow message. Capacity numbers for
+the bus need a real Azure Service Bus namespace (Phase 6): the emulator is meant for sequential testing.
+
+**Phases 1–3**
 
 | What | Result |
 |---|---|
@@ -137,6 +169,20 @@ cd src/CarrierHub.PublicApi
 dotnet user-jwts create --claim merchant_id=merchant-1 --scope shipments:read --scope shipments:write
 ```
 
+### Load tests
+
+Requirements: [k6](https://grafana.com/docs/k6/latest/). With the AppHost running and merchant-1's webhook registered:
+
+```
+$env:TOKEN = "<merchant-1 token>"
+k6 run -e "RATE=1" -e "DURATION=3m" tests/load/shipments.js
+k6 run -e "CARRIERS=ParcelGo" -e "STAGES=5,10,20" -e "STAGE_DURATION=4m" --summary-mode=full tests/load/shipments.js
+```
+
+k6 reports the API. Everything behind it is on the Aspire dashboard's Metrics page: `gateway.event.age`,
+`gateway.polls`, `outbox.wait`, `webhook.delivery_time`, `webhook.deliveries` and `shipment.time_to_delivered`.
+Start each comparison from an empty database (delete the postgres volume), and warm up before measuring.
+
 ## Design decisions
 
 1. [Aspire for local development; Helm and Terraform for deployment](docs/adr/0001-aspire-for-local-development.md)
@@ -148,6 +194,10 @@ dotnet user-jwts create --claim merchant_id=merchant-1 --scope shipments:read --
 7. [Carrier events travel over Azure Service Bus](docs/adr/0007-carrier-events-over-service-bus.md)
 8. [Status changes are announced through a transactional outbox](docs/adr/0008-transactional-outbox.md)
 9. [Merchants receive signed webhooks with retries, dead-lettering and replay](docs/adr/0009-merchant-webhooks.md)
+10. [One trace per carrier event, across the bus and the outbox](docs/adr/0010-one-trace-per-carrier-event.md)
+11. [Polling within a carrier's request budget](docs/adr/0011-polling-within-a-carrier-budget.md)
+12. [Session consumers: many slots, a short idle; the emulator is the local ceiling](docs/adr/0012-session-consumers-and-the-local-ceiling.md)
+13. [What limited throughput locally, and what we changed](docs/adr/0013-what-limited-throughput-locally.md)
 
 ## Roadmap
 
@@ -156,17 +206,20 @@ dotnet user-jwts create --claim merchant_id=merchant-1 --scope shipments:read --
 | 1. Foundation | Tracking Service, Public API, PostgreSQL | Done |
 | 2. Carrier integration | Mock carriers with fault injection, Carrier Gateway, resilience, signed webhooks | Done |
 | 3. Messaging | Azure Service Bus, transactional outbox, merchant webhooks | Done |
-| 4. Observability and load | One trace per carrier event, k6 load tests with real numbers | Next |
-| 5. AI assistant | Tool calling over the Public API, RAG over carrier SLAs, evaluations, MCP | Planned |
+| 4. Observability and load | One trace per carrier event, k6 load tests with real numbers | Done |
+| 5. AI assistant | Tool calling over the Public API, RAG over carrier SLAs, evaluations, MCP | Next |
 | 6. Cloud delivery | Docker, Helm, Terraform, AKS, GitHub Actions | Planned |
 | 7. Publish | Demo video, final write-up | Planned |
 
 Not built yet from Phase 3: replay for parked carrier events, an outbox clean-up job, backoff over minutes
 instead of immediate redelivery, encrypted webhook secrets, and an SSRF guard on merchant URLs.
+From Phase 4: queue depth per Service Bus entity, a sampling policy, warm-up before readiness, ordering the
+active-shipments query by creation, a shared polling schedule for several Gateway instances, and capacity
+numbers on Azure.
 
 ## Tech
 
 .NET 10, ASP.NET Core minimal APIs, EF Core with PostgreSQL (Npgsql), Azure Service Bus
 (Azure.Messaging.ServiceBus, local emulator), Redis (StackExchange.Redis), Aspire, OpenTelemetry, Polly
 (Microsoft.Extensions.Http.Resilience), JWT bearer authentication, ASP.NET Core rate limiting,
-HMAC-SHA256 webhook signatures, xUnit, Testcontainers.
+HMAC-SHA256 webhook signatures, xUnit, Testcontainers, k6.
