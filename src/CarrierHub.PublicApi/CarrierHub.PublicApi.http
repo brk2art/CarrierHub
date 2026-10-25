@@ -246,3 +246,10 @@ Content-Type: application/json
 ### Delivery log for merchant-1
 GET {{publicapi}}/v1/webhook/deliveries
 Authorization: Bearer {{merchant1}}
+
+### Webhook: merchant-1 registers again after the reset
+PUT {{publicapi}}/v1/webhook
+Authorization: Bearer {{merchant1}}
+Content-Type: application/json
+
+{ "url": "https://localhost:7049/merchant-hooks/merchant-1" }

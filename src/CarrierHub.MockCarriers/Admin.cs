@@ -18,6 +18,15 @@ public static class Admin
             return Results.Ok(faults);
         });
 
+        // The parcel is booked with the carrier: its journey starts now. Calling it again changes nothing.
+        admin.MapPost("/journeys/{carrier}/{trackingNumber}", (string carrier, string trackingNumber, CarrierState state) =>
+        {
+            if (!Carriers.Known.Contains(carrier))
+                return Results.NotFound(new { error = $"Unknown carrier '{carrier}'. Known: {string.Join(", ", Carriers.Known)}" });
+
+            return Results.Ok(new { carrier, trackingNumber, startedAt = state.StartJourney(carrier, trackingNumber) });
+        });
+
         // Clears faults and subscriptions, and restarts every journey.
         admin.MapPost("/reset", (CarrierState state, ParcelGoSubscriptions subscriptions, MerchantInbox inbox) =>
         {

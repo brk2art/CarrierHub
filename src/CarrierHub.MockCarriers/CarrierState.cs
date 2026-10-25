@@ -26,10 +26,15 @@ public sealed class CarrierState(TimeProvider clock)
     private readonly ConcurrentDictionary<string, Faults> _faults = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, Queue<DateTimeOffset>> _requests = new(StringComparer.OrdinalIgnoreCase);
 
-    // A journey starts the first time a carrier is asked about a tracking number.
+    // A real carrier's clock starts when the parcel is booked, whether anyone asks about it or not.
+    // Load tests call this at creation. Without it, the journey starts the first time a carrier is asked,
+    // which hides any wait before the first poll from the Gateway's event age.
+    public DateTimeOffset StartJourney(string carrier, string trackingNumber) =>
+        _journeyStarts.GetOrAdd(Key(carrier, trackingNumber), _ => clock.GetUtcNow());
+
     public IReadOnlyList<HappenedEvent> HappenedSoFar(string carrier, string trackingNumber)
     {
-        var start = _journeyStarts.GetOrAdd($"{carrier}:{trackingNumber}", _ => clock.GetUtcNow());
+        var start = StartJourney(carrier, trackingNumber);   // started already, or starts now
         var now = clock.GetUtcNow();
 
         return Journeys.For(trackingNumber)
@@ -69,4 +74,7 @@ public sealed class CarrierState(TimeProvider clock)
             return false;
         }
     }
+
+    // "FastShip" from a test and "fastship" from a carrier endpoint are the same journey.
+    private static string Key(string carrier, string trackingNumber) => $"{carrier.ToLowerInvariant()}:{trackingNumber}";
 }
