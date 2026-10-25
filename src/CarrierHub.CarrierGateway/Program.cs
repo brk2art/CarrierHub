@@ -1,15 +1,28 @@
 // RemoveAllResilienceHandlers may still be marked experimental in this version of Microsoft.Extensions.Http.Resilience.
 #pragma warning disable EXTEXP0001
 
+using Azure.Messaging.ServiceBus;
 using CarrierHub.CarrierGateway;
 using CarrierHub.CarrierGateway.Adapters;
 using CarrierHub.CarrierGateway.Webhooks;
+using Microsoft.Extensions.Azure;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
 builder.AddRedisClient("redis");   // connection string comes from Aspire
-builder.AddAzureServiceBusClient("messaging");   // connection string comes from Aspire
+
+// Connection string comes from Aspire. The SDK's default waits up to 60 s per attempt before it retries, so one
+// stuck send could hold a carrier's webhook (or a whole polling round) for minutes. A short attempt and quick
+// retries: a send that went missing is tried again within seconds (ADR 13).
+builder.AddAzureServiceBusClient("messaging", configureClientBuilder: client => client.ConfigureOptions(options =>
+{
+    options.RetryOptions.Mode = ServiceBusRetryMode.Exponential;
+    options.RetryOptions.TryTimeout = TimeSpan.FromSeconds(2);
+    options.RetryOptions.MaxRetries = 2;
+    options.RetryOptions.Delay = TimeSpan.FromMilliseconds(100);
+    options.RetryOptions.MaxDelay = TimeSpan.FromSeconds(1);
+}));
 
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.Configure<PollingOptions>(builder.Configuration.GetSection("Polling"));

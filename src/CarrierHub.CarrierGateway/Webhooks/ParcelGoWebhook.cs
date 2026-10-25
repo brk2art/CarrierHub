@@ -8,6 +8,9 @@ public static class ParcelGoWebhook
 {
     public const string Carrier = "parcelgo";
 
+    // In gateway.events next to published and skipped: we told ParcelGo to retry because the bus was too slow.
+    private const string Refused = "refused";
+
     private const int MaxBodyBytes = 64 * 1024;
     private static readonly TimeSpan Tolerance = TimeSpan.FromMinutes(5);
     private static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
@@ -84,19 +87,40 @@ public static class ParcelGoWebhook
             return Results.Ok();
         }
 
+        // Fail fast. ParcelGo waits for our answer with its own timeout (the mock's is 10 s). A quick 503 it can retry
+        // beats holding the request until ParcelGo gives up and sends the event again anyway (ADR 13).
+        var budget = config.GetValue("ParcelGo:PublishTimeout", TimeSpan.FromSeconds(4));
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(budget);
+
         try
         {
-            await publisher.PublishAsync(shipment, e, ct);
+            await publisher.PublishAsync(shipment, e, timeout.Token);
             metrics.Record(Carrier, GatewayMetrics.Published);
             await forwarded.MarkForwardedAsync(Carrier, shipment, e.CarrierEventId);
             return Results.Ok();   // only now: the event is on the bus, which is durable
         }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            // Our budget ran out, not ParcelGo's patience: the event isn't on the bus. Nothing is lost; ParcelGo retries.
+            metrics.Record(Carrier, Refused);
+            logger.LogWarning("The bus didn't take a ParcelGo event for {TrackingNumber} within {Budget}; asking ParcelGo to retry",
+                trackingNumber, budget);
+            return RetryLater(request);
+        }
         catch (Exception ex) when (ex is Azure.Messaging.ServiceBus.ServiceBusException or TimeoutException)
         {
             // Not on the bus. Say so: ParcelGo retries, and nothing is lost.
+            metrics.Record(Carrier, Refused);
             logger.LogWarning(ex, "Could not publish a ParcelGo event; asking ParcelGo to retry");
-            return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+            return RetryLater(request);
         }
+    }
+
+    private static IResult RetryLater(HttpRequest request)
+    {
+        request.HttpContext.Response.Headers.RetryAfter = "5";   // seconds
+        return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
     }
 
     private static ShipmentStatus? Map(string status) => status switch
