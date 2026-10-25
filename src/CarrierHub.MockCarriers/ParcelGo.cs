@@ -19,7 +19,7 @@ public static class ParcelGo
                 return Results.BadRequest(new { error = "trackingNumber and an absolute callbackUrl are required" });
 
             subscriptions.Add(request.TrackingNumber, request.CallbackUrl);
-            state.HappenedSoFar(Name, request.TrackingNumber);   // the journey starts at the first subscription
+            state.HappenedSoFar(Name, request.TrackingNumber);   // starts the journey, unless it was booked earlier
             return Results.Ok(new { request.TrackingNumber, request.CallbackUrl });
         });
 
@@ -44,6 +44,9 @@ public sealed class ParcelGoSubscription(string trackingNumber, string callbackU
     public string CallbackUrl { get; set; } = callbackUrl;
     public ConcurrentDictionary<string, byte> Delivered { get; } = new();             // event IDs the receiver accepted
     public ConcurrentDictionary<string, DateTimeOffset> HeldUntil { get; } = new();   // for the shuffle fault
+
+    // Every event of the journey was accepted: nothing left to send, so the sender skips it.
+    public bool Finished { get; set; }
 }
 
 public sealed class ParcelGoSubscriptions
@@ -77,8 +80,17 @@ public sealed class ParcelGoWebhookSender(ParcelGoSubscriptions subscriptions, C
                 continue;
             }
 
-            foreach (var subscription in subscriptions.All)
-                await SendDueEventsAsync(subscription, secret, stoppingToken);
+            // A real carrier's webhook service sends for many shipments at once. Sent one at a time, a single slow
+            // answer held up every other shipment, and this sender, not CarrierHub, set the load test's ceiling
+            // (about 6 webhooks a second; ADR 13). Within one shipment, events still go one at a time, in order.
+            await Parallel.ForEachAsync(
+                subscriptions.All.Where(s => !s.Finished),
+                new ParallelOptions
+                {
+                    MaxDegreeOfParallelism = config.GetValue("ParcelGo:SenderParallelism", 32),
+                    CancellationToken = stoppingToken,
+                },
+                async (subscription, ct) => await SendDueEventsAsync(subscription, secret, ct));
         }
     }
 
@@ -116,6 +128,9 @@ public sealed class ParcelGoWebhookSender(ParcelGoSubscriptions subscriptions, C
             }
             // Not accepted: it's sent again on the next tick.
         }
+
+        if (subscription.Delivered.Count >= Journeys.For(subscription.TrackingNumber).Count)
+            subscription.Finished = true;
     }
 
     private async Task<bool> SendAsync(string url, string body, string secret, CancellationToken ct)

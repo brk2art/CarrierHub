@@ -50,7 +50,7 @@ public sealed class OutboxPublisher : BackgroundService
             advice: new InstrumentAdvice<int> { HistogramBucketBoundaries = [1, 2, 5, 10, 25, 50] });
 
         _failures = meter.CreateCounter<long>("carrierhub.outbox.publish_failures", "{message}",
-            "Sends to the bus that failed; the row waits for the next check");
+            "Messages whose send to the bus failed; they wait for the next check");
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -75,7 +75,7 @@ public sealed class OutboxPublisher : BackgroundService
     private async Task<int> PublishBatchAsync(ServiceBusSender sender, CancellationToken ct)
     {
         // This runs every second and almost always finds nothing. Traced, it was 3,600 empty traces an hour,
-        // and the dashboard dropped the real ones to make room. Only actual publishes are traced (PublishOneAsync).
+        // and the dashboard dropped the real ones to make room. Only the messages and the send are traced.
         using var quiet = SuppressInstrumentationScope.Begin();
 
         using var scope = _scopes.CreateScope();
@@ -87,7 +87,7 @@ public sealed class OutboxPublisher : BackgroundService
             await using var transaction = await db.Database.BeginTransactionAsync(ct);
 
             // Lock this batch. Rows another Tracking instance is publishing right now are skipped, not waited for.
-            var batch = await db.Outbox
+            var rows = await db.Outbox
                 .FromSql($"""
                     SELECT * FROM "OutboxMessages"
                     WHERE "PublishedAt" IS NULL
@@ -97,16 +97,12 @@ public sealed class OutboxPublisher : BackgroundService
                     """)
                 .ToListAsync(ct);
 
-            if (batch.Count > 0)
-                _batchSize.Record(batch.Count);
+            if (rows.Count == 0)
+                return 0;
 
-            var published = 0;
-            foreach (var message in batch)
-            {
-                if (!await PublishOneAsync(sender, message, ct))
-                    break;   // stop here, so later messages can't overtake this one
-                published++;
-            }
+            _batchSize.Record(rows.Count);
+
+            var published = await SendAsync(sender, rows, ct);
 
             await db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
@@ -114,41 +110,70 @@ public sealed class OutboxPublisher : BackgroundService
         });
     }
 
-    private async Task<bool> PublishOneAsync(ServiceBusSender sender, OutboxMessage message, CancellationToken ct)
+    // One round trip for the whole batch. Sent one at a time, each row waited for the bus to answer the one before
+    // it, and under load the outbox fell minutes behind at about 5 messages a second (ADR 13). Same order, same
+    // MessageIds (so the topic's duplicate detection still works); the batch succeeds or fails as a whole.
+    private async Task<int> SendAsync(ServiceBusSender sender, List<OutboxMessage> rows, CancellationToken ct)
     {
-        // Tracing back on for this one message, continuing the trace of the change that wrote the row.
         using var traced = SuppressInstrumentationScope.Begin(false);
-        ActivityContext.TryParse(message.TraceParent, null, out var parent);
-        using var activity = Source.StartActivity("outbox publish", ActivityKind.Internal, parent);
-        activity?.SetTag("messaging.destination.name", TopicName);
-        activity?.SetTag("carrierhub.outbox.type", message.Type);
+        using var batch = await sender.CreateMessageBatchAsync(ct);
 
-        var waited = _clock.GetUtcNow() - message.CreatedAt;
-        // How long the row waited: the gap you see in the trace between the change and its publish.
-        activity?.SetTag("carrierhub.outbox.wait_ms", waited.TotalMilliseconds);
+        var added = new List<OutboxMessage>(rows.Count);
+        foreach (var row in rows)
+        {
+            // Each message continues the trace of the change that wrote it: the SDK stamps the current span's
+            // context on the message as it's added, so Notification's processing joins this trace.
+            ActivityContext.TryParse(row.TraceParent, null, out var parent);
+            using var activity = Source.StartActivity("outbox publish", ActivityKind.Internal, parent);
+            activity?.SetTag("messaging.destination.name", TopicName);
+            activity?.SetTag("carrierhub.outbox.type", row.Type);
+            activity?.SetTag("carrierhub.outbox.wait_ms", (_clock.GetUtcNow() - row.CreatedAt).TotalMilliseconds);
+
+            if (!batch.TryAddMessage(ToMessage(row)))
+                break;   // the batch is full (size limit): the rest go in the next one, still in order
+
+            added.Add(row);
+        }
+
+        if (added.Count == 0)
+        {
+            // Even the first row doesn't fit in a batch on its own. Retrying won't help; a person has to look.
+            rows[0].Attempts++;
+            rows[0].LastError = "Message too large for a batch.";
+            _logger.LogError("Outbox message {Id} is too large to publish", rows[0].Id);
+            return 0;
+        }
 
         try
         {
-            await sender.SendMessageAsync(new ServiceBusMessage(BinaryData.FromString(message.Payload))
-            {
-                MessageId = message.Id.ToString(),   // the topic drops a re-publish of the same row within its window
-                SessionId = message.SessionId,       // one session per shipment: subscribers get its messages in order
-                Subject = message.Type,
-                ContentType = "application/json",
-            }, ct);
-
-            message.PublishedAt = _clock.GetUtcNow();
-            _wait.Record(waited.TotalSeconds, new KeyValuePair<string, object?>("carrierhub.outbox.type", message.Type));
-            return true;
+            await sender.SendMessagesAsync(batch, ct);
         }
         catch (Exception ex) when (ex is ServiceBusException or TimeoutException)
         {
-            message.Attempts++;
-            message.LastError = ex.Message.Length > 1000 ? ex.Message[..1000] : ex.Message;
-            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
-            _failures.Add(1);
-            _logger.LogWarning(ex, "Could not publish outbox message {Id}; it waits for the next try", message.Id);
-            return false;
+            var first = added[0];
+            first.Attempts++;
+            first.LastError = ex.Message.Length > 1000 ? ex.Message[..1000] : ex.Message;
+            _failures.Add(added.Count);
+            _logger.LogWarning(ex, "Could not publish {Count} outbox messages from {Id}; they wait for the next try",
+                added.Count, first.Id);
+            return 0;   // nothing marked: the whole batch is tried again, in the same order
         }
+
+        var now = _clock.GetUtcNow();
+        foreach (var row in added)
+        {
+            row.PublishedAt = now;
+            _wait.Record((now - row.CreatedAt).TotalSeconds, new KeyValuePair<string, object?>("carrierhub.outbox.type", row.Type));
+        }
+
+        return added.Count;
     }
+
+    private static ServiceBusMessage ToMessage(OutboxMessage row) => new(BinaryData.FromString(row.Payload))
+    {
+        MessageId = row.Id.ToString(),   // the topic drops a re-publish of the same row within its window
+        SessionId = row.SessionId,       // one session per shipment: subscribers get its messages in order
+        Subject = row.Type,
+        ContentType = "application/json",
+    };
 }
