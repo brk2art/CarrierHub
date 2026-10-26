@@ -17,6 +17,7 @@ public static class ShipmentEndpoints
             .RequireRateLimiting(RateLimits.PerMerchant);
 
         v1.MapPost("/", CreateAsync).RequireAuthorization(Policies.Write);
+        v1.MapGet("/count", CountAsync).RequireAuthorization(Policies.Read);
         v1.MapGet("/{id:guid}", GetAsync).RequireAuthorization(Policies.Read);
         v1.MapGet("/", SearchAsync).RequireAuthorization(Policies.Read);
     }
@@ -41,11 +42,20 @@ public static class ShipmentEndpoints
         return await ForwardAsync<Shipment>(response, ct);
     }
 
-    private static async Task<IResult> SearchAsync(string? status, bool? late, string? reference, ClaimsPrincipal user,
-        TrackingClient tracking, CancellationToken ct)
+    // Newest first, at most `limit` (1 to 100, default 100). The page is never the total: use /count for that.
+    private static async Task<IResult> SearchAsync(string? status, bool? late, string? reference, int? limit,
+        ClaimsPrincipal user, TrackingClient tracking, CancellationToken ct)
     {
-        using var response = await tracking.SearchAsync(MerchantId(user), status, late, reference, ct);
+        using var response = await tracking.SearchAsync(MerchantId(user), status, late, reference, limit, ct);
         return await ForwardAsync<List<Shipment>>(response, ct);
+    }
+
+    // "How many?" without moving any shipment over the network.
+    private static async Task<IResult> CountAsync(string? status, bool? late, string? reference,
+        ClaimsPrincipal user, TrackingClient tracking, CancellationToken ct)
+    {
+        using var response = await tracking.CountAsync(MerchantId(user), status, late, reference, ct);
+        return await ForwardAsync<ShipmentCount>(response, ct);
     }
 
     // The authorization policy guarantees the claim is there.

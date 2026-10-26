@@ -22,3 +22,5 @@ public sealed record Webhook(
 
 public sealed record WebhookDelivery(string MessageId, string Type, int? StatusCode, bool Succeeded, string? Error,
     DateTimeOffset AttemptedAt);
+
+public sealed record ShipmentCount(int Count);

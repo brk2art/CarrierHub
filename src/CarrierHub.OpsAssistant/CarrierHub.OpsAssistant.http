@@ -1,0 +1,33 @@
+### 1. One shipment: expect get_shipment_timeline(reference = ORDER-20001)
+POST {{opsassistant}}/v1/assistant/ask
+Authorization: Bearer {{merchant1Read}}
+Content-Type: application/json
+
+{ "question": "Where is ORDER-20001 right now?" }
+
+### 2. A filter: expect find_shipments(late = true)
+POST {{opsassistant}}/v1/assistant/ask
+Authorization: Bearer {{merchant1Read}}
+Content-Type: application/json
+
+{ "question": "Which of my shipments are late?" }
+
+### 3. A count: expect find_shipments(status = Delivered), answered from "total"
+POST {{opsassistant}}/v1/assistant/ask
+Authorization: Bearer {{merchant1Read}}
+Content-Type: application/json
+
+{ "question": "How many of my shipments have been delivered?" }
+
+### 4. Something that doesn't exist: expect a tool call, then "not found", nothing invented
+POST {{opsassistant}}/v1/assistant/ask
+Authorization: Bearer {{merchant1Read}}
+Content-Type: application/json
+
+{ "question": "What happened to ORDER-99999?" }
+
+### 5. No token: expect 401, and no model call at all
+POST {{opsassistant}}/v1/assistant/ask
+Content-Type: application/json
+
+{ "question": "Which of my shipments are late?" }

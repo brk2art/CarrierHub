@@ -8,10 +8,10 @@ Authorization: Bearer {{merchant1}}
 Content-Type: application/json
 
 {
-  "merchantReference": "ORDER-14005",
-  "carrier": "FastShip",
-  "trackingNumber": "FS1400005",
-  "promisedBy": "2026-10-28T18:00:00+01:00"
+  "merchantReference": "ORDER-20003",
+  "carrier": "NordPost",
+  "trackingNumber": "NP2000003",
+  "promisedBy": "2026-10-26T22:00:30+03:00"
 }
 
 ### 3. merchant-1 reads it: 200, and no receivedAt anywhere
@@ -253,3 +253,11 @@ Authorization: Bearer {{merchant1}}
 Content-Type: application/json
 
 { "url": "https://localhost:7049/merchant-hooks/merchant-1" }
+
+### Ground truth: what does late=true return?
+GET {{publicapi}}/v1/shipments?late=true
+Authorization: Bearer {{merchant1}}
+
+### Ground truth: ORDER-20002 itself
+GET {{publicapi}}/v1/shipments?reference=ORDER-20002
+Authorization: Bearer {{merchant1}}

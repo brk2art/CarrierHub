@@ -58,7 +58,7 @@ var notification = builder.AddProject<Projects.CarrierHub_Notification>("notific
     .WaitFor(messaging);
 
 // The merchant-facing API. It reaches shipment data only through Tracking.
-builder.AddProject<Projects.CarrierHub_PublicApi>("publicapi")
+var publicApi = builder.AddProject<Projects.CarrierHub_PublicApi>("publicapi")
     .WithReference(tracking)
     .WaitFor(tracking)
     .WithReference(notification)
@@ -86,5 +86,15 @@ var gateway = builder.AddProject<Projects.CarrierHub_CarrierGateway>("gateway")
 
 // ParcelGo needs an address to push to: the Gateway's own https endpoint.
 gateway.WithEnvironment("ParcelGo__CallbackBaseUrl", gateway.GetEndpoint("https"));
+
+// The AI ops assistant. No data access of its own: its tools call the Public API with the caller's token.
+// Ollama runs natively on this machine (it uses the GPU there); the model is a setting, so the evaluations
+// can compare models by changing one line.
+builder.AddProject<Projects.CarrierHub_OpsAssistant>("opsassistant")
+    .WithReference(publicApi)
+    .WaitFor(publicApi)
+    .WithEnvironment("Ollama__Endpoint", "http://localhost:11434")
+    .WithEnvironment("Ollama__Model", "qwen2.5:7b")
+    .WithExternalHttpEndpoints();
 
 builder.Build().Run();

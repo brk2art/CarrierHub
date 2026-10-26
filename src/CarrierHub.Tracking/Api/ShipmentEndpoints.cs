@@ -32,13 +32,19 @@ public sealed record CarrierEventResponse(Guid ShipmentId, EventResult Result, S
 
 public sealed record ActiveShipmentResponse(string Carrier, string TrackingNumber);
 
+public sealed record CountResponse(int Count);
+
 public static class ShipmentEndpoints
 {
+    // A search returns at most this many shipments, newest first. To know how many there are, ask /count.
+    public const int MaxPageSize = 100;
+
     public static void MapShipmentEndpoints(this WebApplication app)
     {
         // Every merchant route carries the merchant. The Public API will fill it from the caller's JWT.
         var merchant = app.MapGroup("/merchants/{merchantId}/shipments");
         merchant.MapPost("/", CreateAsync);
+        merchant.MapGet("/count", CountAsync);
         merchant.MapGet("/{id:guid}", GetAsync);
         merchant.MapGet("/", SearchAsync);
 
@@ -94,11 +100,35 @@ public static class ShipmentEndpoints
         return shipment is null ? Results.NotFound() : Results.Ok(ShipmentResponse.From(shipment, clock.GetUtcNow()));
     }
 
-    // Search by what a person would ask: a status, "late", or their own order number.
+    // Search by what a person would ask: a status, "late", or their own order number. Newest first, at most
+    // `limit` (1 to 100, default 100). The page is never the total: a caller that counts the page gets it wrong.
     private static async Task<IResult> SearchAsync(string merchantId, ShipmentStatus? status, bool? late, string? reference,
+        int? limit, TrackingDbContext db, TimeProvider clock, CancellationToken ct)
+    {
+        if (limit is < 1 or > MaxPageSize)
+            return Results.BadRequest(new { error = $"limit must be between 1 and {MaxPageSize}." });
+
+        var now = clock.GetUtcNow();
+        var shipments = await Filter(db, merchantId, status, late, reference, now)
+            .OrderByDescending(s => s.CreatedAt)
+            .Take(limit ?? MaxPageSize)
+            .ToListAsync(ct);
+
+        return Results.Ok(shipments.Select(s => ShipmentResponse.From(s, now)));
+    }
+
+    // How many match: the same filter, counted by the database, without loading a single shipment.
+    private static async Task<IResult> CountAsync(string merchantId, ShipmentStatus? status, bool? late, string? reference,
         TrackingDbContext db, TimeProvider clock, CancellationToken ct)
     {
-        var now = clock.GetUtcNow();
+        var count = await Filter(db, merchantId, status, late, reference, clock.GetUtcNow()).CountAsync(ct);
+        return Results.Ok(new CountResponse(count));
+    }
+
+    // One filter for search and count, so "show me" and "how many" can never disagree.
+    private static IQueryable<Shipment> Filter(TrackingDbContext db, string merchantId, ShipmentStatus? status,
+        bool? late, string? reference, DateTimeOffset now)
+    {
         var query = db.Shipments.AsNoTracking().Where(s => s.MerchantId == merchantId);
 
         if (status is { } wanted)
@@ -114,8 +144,7 @@ public static class ShipmentEndpoints
                     && s.Status != ShipmentStatus.Returned
                     && s.PromisedBy < now));
 
-        var shipments = await query.OrderByDescending(s => s.CreatedAt).Take(100).ToListAsync(ct);
-        return Results.Ok(shipments.Select(s => ShipmentResponse.From(s, now)));
+        return query;
     }
 
     private static async Task<IResult> AddCarrierEventAsync(CarrierEventRequest request,
@@ -141,7 +170,7 @@ public static class ShipmentEndpoints
             .Where(s => s.Carrier.ToLower() == key
                 && s.Status != ShipmentStatus.Delivered
                 && s.Status != ShipmentStatus.Returned)
-            .OrderBy(s => s.CreatedAt)
+            .OrderBy(s => s.CreatedAt)   // oldest first: under a tight budget, polling is first in, first out (ADR 11)
             .Select(s => new ActiveShipmentResponse(s.Carrier, s.TrackingNumber))   // a projection: the events aren't loaded
             .Take(1000)
             .ToListAsync(ct);
