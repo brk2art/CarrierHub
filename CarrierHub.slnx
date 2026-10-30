@@ -12,6 +12,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/CarrierHub.CarrierGateway.Tests/CarrierHub.CarrierGateway.Tests.csproj" />
     <Project Path="tests/CarrierHub.Notification.Tests/CarrierHub.Notification.Tests.csproj" />
+    <Project Path="tests/CarrierHub.OpsAssistant.Evals/CarrierHub.OpsAssistant.Evals.csproj" />
     <Project Path="tests/CarrierHub.PublicApi.Tests/CarrierHub.PublicApi.Tests.csproj" />
     <Project Path="tests/CarrierHub.Tracking.Tests/CarrierHub.Tracking.Tests.csproj" />
   </Folder>
