@@ -14,6 +14,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\CarrierHub.OpsAssistant\CarrierHub.OpsAssistant.csproj" />
+    <ProjectReference Include="..\..\src\CarrierHub.AssistantTools\CarrierHub.AssistantTools.csproj" />
   </ItemGroup>
 
   <ItemGroup>

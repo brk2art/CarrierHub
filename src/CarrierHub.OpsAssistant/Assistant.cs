@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.AI;
+﻿using CarrierHub.AssistantTools;
+using Microsoft.Extensions.AI;
 using OllamaSharp;
 
 namespace CarrierHub.OpsAssistant;

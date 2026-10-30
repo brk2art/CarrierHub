@@ -1,7 +1,7 @@
 ﻿using System.ComponentModel;
 using System.Text.RegularExpressions;
 
-namespace CarrierHub.OpsAssistant;
+namespace CarrierHub.AssistantTools;
 
 // The tools the model may call, one instance per question, bound to the caller's token.
 // They return small, plain objects: every field costs tokens, and the model only needs what answers a question.

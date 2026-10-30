@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\CarrierHub.ServiceDefaults\CarrierHub.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\CarrierHub.AssistantTools\CarrierHub.AssistantTools.csproj" />
   </ItemGroup>
 
   <ItemGroup>

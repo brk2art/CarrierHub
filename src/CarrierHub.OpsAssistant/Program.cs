@@ -1,3 +1,4 @@
+using CarrierHub.AssistantTools;
 using CarrierHub.OpsAssistant;
 
 var builder = WebApplication.CreateBuilder(args);
