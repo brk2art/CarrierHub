@@ -3,6 +3,7 @@
     <Project Path="src/CarrierHub.AppHost/CarrierHub.AppHost.csproj" />
     <Project Path="src/CarrierHub.AssistantTools/CarrierHub.AssistantTools.csproj" />
     <Project Path="src/CarrierHub.CarrierGateway/CarrierHub.CarrierGateway.csproj" />
+    <Project Path="src/CarrierHub.McpServer/CarrierHub.McpServer.csproj" />
     <Project Path="src/CarrierHub.MockCarriers/CarrierHub.MockCarriers.csproj" />
     <Project Path="src/CarrierHub.Notification/CarrierHub.Notification.csproj" />
     <Project Path="src/CarrierHub.OpsAssistant/CarrierHub.OpsAssistant.csproj" />
