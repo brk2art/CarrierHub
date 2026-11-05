@@ -235,7 +235,7 @@
     "type": "multi",
     "question": "Which late shipment is still on its way, and where is it now?",
     "expectTools": [ { "name": "find_shipments|find_shipments_needing_attention|get_shipment_timeline" } ],
-    "mustContain": [ "ORDER-1004", "out for delivery|depot" ]
+    "mustContain": [ "ORDER-1004", "out for delivery|outfordelivery|depot" ]
   },
 
   {

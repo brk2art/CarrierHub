@@ -3,6 +3,7 @@ using Azure;
 using Azure.AI.OpenAI;
 using Azure.Identity;
 using CarrierHub.AssistantTools;
+using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using OllamaSharp;
 
@@ -102,11 +103,14 @@ public sealed class Assistant(IChatClient chat, PublicApiClient api, TimeProvide
         return client.GetChatClient(o.Deployment).AsIChatClient();
     }
 
-    public async Task<AssistantResult> AskAsync(string question, string token, CancellationToken ct)
+    // The agent: its instructions, its tools and the chat client.Built per question, because the tools carry the
+    // caller's own token; what may outlive one request is the session (the conversation), not the agent.
+    private ChatClientAgent CreateAgent(ShipmentTools tools) => new(chat, new ChatClientAgentOptions
     {
-        var tools = new ShipmentTools(api, token);
-        var chatOptions = new ChatOptions
+        Name = "CarrierHubOpsAssistant",
+        ChatOptions = new ChatOptions
         {
+            Instructions = SystemPrompt(clock.GetUtcNow()),
             // Ollama: temperature 0, so the same question gets the same tool calls. GPT-5 reasoning models reject a
             // temperature; their reasoning effort is set in CreateChatClient instead.
             Temperature = options.IsAzure ? null : 0f,
@@ -117,16 +121,22 @@ public sealed class Assistant(IChatClient chat, PublicApiClient api, TimeProvide
                 AIFunctionFactory.Create(tools.FindShipmentsNeedingAttention, "find_shipments_needing_attention"),
                 AIFunctionFactory.Create(tools.GetShipmentTimeline, "get_shipment_timeline"),
             ],
-        };
+        },
+        // Our chat client already has the tool loop (with its limits) and telemetry: the agent uses it as it is
+        // instead of adding a second tool loop around it.
+        UseProvidedChatClientAsIs = true
+    });
 
-        List<ChatMessage> messages =
-        [
-            new(ChatRole.System, SystemPrompt(clock.GetUtcNow())),
-            new(ChatRole.User, question),
-        ];
+    public async Task<AssistantResult> AskAsync(string question, string token, CancellationToken ct)
+    {
+        var tools = new ShipmentTools(api, token);
+        var agent = CreateAgent(tools);
+
+        // One question, one new session. Conversations that continue across requests come in the next step.
+        var session = await agent.CreateSessionAsync(ct);
 
         var started = clock.GetTimestamp();
-        var response = await chat.GetResponseAsync(messages, chatOptions, ct);
+        var response = await agent.RunAsync(question, session, cancellationToken: ct);
 
         if (tools.RejectedWith is { } status)
             return new(null, status);
