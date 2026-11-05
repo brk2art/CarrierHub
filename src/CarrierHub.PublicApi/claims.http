@@ -71,3 +71,7 @@ Authorization: Bearer {{merchant2}}
 ### 11. Who am I? merchant-1, read scope only
 GET {{publicapi}}/v1/me
 Authorization: Bearer {{readonly1}}
+
+### Delivered shipments of merchant-1
+GET {{publicapi}}/v1/shipments?status=Delivered&limit=10
+Authorization: Bearer {{readonly1}}

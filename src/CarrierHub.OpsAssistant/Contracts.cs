@@ -1,11 +1,12 @@
 ﻿namespace CarrierHub.OpsAssistant;
 
-// No ConversationId: start a new conversation. With one: continue it.
 public sealed record AskRequest(string Question, string? ConversationId = null);
 
-// What the assistant did, next to what it said: the evaluations check the tool calls, a person reads the answer.
-// ConversationId: send it with the next question to continue the conversation.
 public sealed record AskResponse(string Answer, IReadOnlyList<ToolCall> ToolCalls, string Model,
-    long? InputTokens, long? OutputTokens, int DurationMs, string? ConversationId = null);
+    long? InputTokens, long? OutputTokens, int DurationMs, string? ConversationId = null,
+    IReadOnlyList<ProposedAction>? PendingActions = null);
 
 public sealed record ToolCall(string Name, IDictionary<string, object?>? Arguments);
+
+// What this answer prepared for approval. A page shows each with an Approve and a Reject button (Step 3c).
+public sealed record ProposedAction(Guid Id, string Kind, string Summary, DateTimeOffset ExpiresAt);

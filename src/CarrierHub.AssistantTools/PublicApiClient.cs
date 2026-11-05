@@ -8,6 +8,12 @@ public sealed record ApiResult<T>(int StatusCode, T? Value);
 
 public sealed record ShipmentCount(int Count);
 
+// Who the token belongs to, as the Public API validated it.
+public sealed record Me(string MerchantId, IReadOnlyList<string> Scopes);
+
+public sealed record ShipmentClaim(Guid Id, Guid ShipmentId, string MerchantReference, string Carrier,
+    string Reason, string Status, string? Note, DateTimeOffset CreatedAt);
+
 // The assistant's only way to data: the Public API, with the caller's own token. The API decides what this
 // merchant may see, exactly as for any other client, so the assistant can't see more than the person asking.
 public sealed class PublicApiClient(HttpClient http)
@@ -21,6 +27,13 @@ public sealed class PublicApiClient(HttpClient http)
     public Task<ApiResult<ShipmentCount>> CountAsync(string token, string? status, bool? late, string? reference,
         CancellationToken ct) =>
         GetAsync<ShipmentCount>(token, "/v1/shipments/count" + Query(status, late, reference, limit: null), ct);
+
+    public Task<ApiResult<Me>> MeAsync(string token, CancellationToken ct) =>
+        GetAsync<Me>(token, "/v1/me", ct);
+
+    // Read scope is enough: the assistant looks at claims, it never opens one itself.
+    public Task<ApiResult<List<ShipmentClaim>>> ListClaimsAsync(string token, Guid shipmentId, CancellationToken ct) =>
+        GetAsync<List<ShipmentClaim>>(token, $"/v1/claims?shipmentId={shipmentId}&limit=100", ct);
 
     private async Task<ApiResult<T>> GetAsync<T>(string token, string url, CancellationToken ct)
     {

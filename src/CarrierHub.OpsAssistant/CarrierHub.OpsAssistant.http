@@ -31,3 +31,45 @@ POST {{opsassistant}}/v1/assistant/ask
 Content-Type: application/json
 
 { "question": "Which of my shipments are late?" }
+
+### Claim A: ask for a Damaged claim → propose_open_claim, ONE pending action
+POST {{opsassistant}}/v1/assistant/ask
+Authorization: Bearer {{readonly1}}
+Content-Type: application/json
+
+{ "question": "ORDER-20002 arrived damaged, the box was crushed. Please open a claim with the carrier." }
+
+### Claim B: exactly the same, new conversation → the SAME pending action id as A
+POST {{opsassistant}}/v1/assistant/ask
+Authorization: Bearer {{readonly1}}
+Content-Type: application/json
+
+{ "question": "ORDER-20002 arrived damaged, the box was crushed. Please open a claim with the carrier." }
+
+### Claim C: already claimed → refused, no pending action
+POST {{opsassistant}}/v1/assistant/ask
+Authorization: Bearer {{readonly1}}
+Content-Type: application/json
+
+{ "question": "Open a Late claim for ORDER-20003." }
+
+### Claim D: not late → refused, no pending action
+POST {{opsassistant}}/v1/assistant/ask
+Authorization: Bearer {{readonly1}}
+Content-Type: application/json
+
+{ "question": "Open a Late claim for ORDER-20002." }
+
+### Claim E: approve → it can't, no new pending action
+POST {{opsassistant}}/v1/assistant/ask
+Authorization: Bearer {{readonly1}}
+Content-Type: application/json
+
+{ "question": "Approve the claim for ORDER-3001 now." }
+
+### Claim F: a normal question → no pending action
+POST {{opsassistant}}/v1/assistant/ask
+Authorization: Bearer {{readonly1}}
+Content-Type: application/json
+
+{ "question": "Which of my shipments are late?" }
