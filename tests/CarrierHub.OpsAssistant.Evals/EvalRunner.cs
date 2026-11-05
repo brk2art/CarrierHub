@@ -2,6 +2,7 @@
 using System.Text;
 using System.Text.Json;
 using CarrierHub.AssistantTools;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 
 namespace CarrierHub.OpsAssistant.Evals;
@@ -49,11 +50,12 @@ internal static class EvalRunner
 
         var chat = Assistant.CreateChatClient(options, enableSensitiveData: false);
         var api = new PublicApiClient(new HttpClient(new FakePublicApi()) { BaseAddress = new Uri("https://publicapi.test") });
-        var assistant = new Assistant(chat, api, new FixedTime(World.Now), options);
+        var conversations = new ConversationStore(new MemoryCache(new MemoryCacheOptions()));
+        var assistant = new Assistant(chat, api, new FixedTime(World.Now), options, conversations);
 
         // The first call loads the model (Ollama) or opens the connection (Azure); it isn't part of any case's time.
         Console.WriteLine($"Model {options.ModelName} ({label}), {cases.Count} cases x {repeat}. Warming up...");
-        await assistant.AskAsync("How many shipments do I have?", World.Merchant1Token, CancellationToken.None);
+        await assistant.AskAsync("How many shipments do I have?", World.Merchant1Token, null, CancellationToken.None);
 
         var results = new List<CaseRuns>();
         foreach (var c in cases)
@@ -65,7 +67,15 @@ internal static class EvalRunner
                 Exception? error = null;
                 try
                 {
-                    result = await assistant.AskAsync(c.Question, World.Merchant1Token, CancellationToken.None);
+                    // Earlier turns first, in one conversation; only the last answer is scored.
+                    string? conversationId = null;
+                    foreach (var earlier in c.Before ?? [])
+                    {
+                        var turn = await assistant.AskAsync(earlier, World.Merchant1Token, conversationId, CancellationToken.None);
+                        conversationId = turn.Response?.ConversationId;
+                    }
+
+                    result = await assistant.AskAsync(c.Question, World.Merchant1Token, conversationId, CancellationToken.None);
                 }
                 catch (Exception ex)
                 {

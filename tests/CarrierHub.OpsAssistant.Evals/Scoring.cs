@@ -14,7 +14,8 @@ public sealed record GoldenCase(
     bool ExpectNoTools,
     List<string>? MustContain,      // each entry: alternatives separated by |, at least one must appear
     List<string>? MustNotContain,   // each entry: alternatives separated by |, none may appear
-    string? Notes);
+    string? Notes,
+    List<string>? Before = null);   // earlier questions in the same conversation; only the last answer is scored
 
 public sealed record CaseResult(GoldenCase Case, AskResponse? Response, bool ToolsOk, bool ArgsOk, bool AnswerOk,
     IReadOnlyList<string> Problems)

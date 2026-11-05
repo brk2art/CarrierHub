@@ -36,12 +36,13 @@ public sealed class AzureOpenAIOptions
     public string? ReasoningEffort { get; set; } = "low";    // measured in DocChat: fewer wrong answers for +0.17 s
 }
 
-// One question's outcome: the answer, or the status the Public API refused the caller with.
-public sealed record AssistantResult(AskResponse? Response, int? RejectedWith);
+// One question's outcome: the answer; or the status the Public API refused the caller with; or a conversation id
+// that doesn't exist (any more) for this caller.
+public sealed record AssistantResult(AskResponse? Response, int? RejectedWith, bool UnknownConversation = false);
 
 // Answers one question with the merchant's own token. The endpoint uses it, and the evaluations use it unchanged:
 // what is evaluated is what runs.
-public sealed class Assistant(IChatClient chat, PublicApiClient api, TimeProvider clock, AssistantOptions options)
+public sealed class Assistant(IChatClient chat, PublicApiClient api, TimeProvider clock, AssistantOptions options, ConversationStore conversations)
 {
     public const string TelemetrySource = "CarrierHub.OpsAssistant";
 
@@ -127,19 +128,35 @@ public sealed class Assistant(IChatClient chat, PublicApiClient api, TimeProvide
         UseProvidedChatClientAsIs = true
     });
 
-    public async Task<AssistantResult> AskAsync(string question, string token, CancellationToken ct)
+    // conversationId null: a new conversation. Otherwise: continue it, if it exists for this caller.
+    public async Task<AssistantResult> AskAsync(string question, string token, string? conversationId, CancellationToken ct)
     {
         var tools = new ShipmentTools(api, token);
         var agent = CreateAgent(tools);
 
-        // One question, one new session. Conversations that continue across requests come in the next step.
-        var session = await agent.CreateSessionAsync(ct);
+        AgentSession session;
+        if (conversationId is null)
+        {
+            conversationId = ConversationStore.NewId();
+            session = await agent.CreateSessionAsync(ct);
+        }
+        else if (conversations.Load(conversationId, token) is { } saved)
+        {
+            session = await agent.DeserializeSessionAsync(saved, cancellationToken: ct);
+        }
+        else
+        {
+            return new(null, null, UnknownConversation: true);
+        }
 
         var started = clock.GetTimestamp();
         var response = await agent.RunAsync(question, session, cancellationToken: ct);
 
         if (tools.RejectedWith is { } status)
             return new(null, status);
+
+        // The whole conversation so far (questions, tool results, answers), for the next question.
+        conversations.Save(conversationId, token, await agent.SerializeSessionAsync(session, cancellationToken: ct));
 
         var toolCalls = response.Messages
             .SelectMany(m => m.Contents)
@@ -153,6 +170,6 @@ public sealed class Assistant(IChatClient chat, PublicApiClient api, TimeProvide
             options.ModelName,
             response.Usage?.InputTokenCount,
             response.Usage?.OutputTokenCount,
-            (int)clock.GetElapsedTime(started).TotalMilliseconds), null);
+            (int)clock.GetElapsedTime(started).TotalMilliseconds, conversationId), null);
     }
 }

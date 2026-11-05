@@ -17,6 +17,8 @@ builder.Services.AddSingleton(options);
 
 // Prompts and answers go into traces in Development only.
 builder.Services.AddSingleton(Assistant.CreateChatClient(options, enableSensitiveData: builder.Environment.IsDevelopment()));
+builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<ConversationStore>();
 builder.Services.AddScoped<Assistant>();
 
 var app = builder.Build();

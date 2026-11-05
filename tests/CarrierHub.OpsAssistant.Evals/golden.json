@@ -244,5 +244,35 @@
     "question": "Is anything stuck? Show me failed deliveries and late shipments.",
     "expectTools": [ { "name": "find_shipments|find_shipments_needing_attention" } ],
     "mustContain": [ "ORDER-1005", "ORDER-1004" ]
+  },
+  {
+    "id": "conv-1",
+    "type": "conversation",
+    "before": [ "Which of my shipments need attention?" ],
+    "question": "Tell me more about the one where delivery failed.",
+    "expectTools": [
+      {
+        "name": "get_shipment_timeline",
+        "args": { "reference": "ORDER-1005" }
+      }
+    ],
+    "mustContain": [ "not at home" ],
+    "notes": "'the one' must be resolved from the previous answer: ORDER-1005"
+  },
+  {
+    "id": "conv-2",
+    "type": "conversation",
+    "before": [ "Which shipments are in transit?" ],
+    "question": "Which of those are with NordPost?",
+    "mustContain": [ "ORDER-1008", "ORDER-1011" ],
+    "notes": "'those' = the in-transit shipments from the previous answer"
+  },
+  {
+    "id": "conv-3",
+    "type": "conversation",
+    "before": [ "Where is ORDER-1011 now?" ],
+    "question": "When was it promised?",
+    "mustContain": [ "2026-10-28|October 28|28 October|Oct 28|28 Oct" ],
+    "notes": "'it' = ORDER-1011, promised by 2026-10-28 17:00"
   }
 ]

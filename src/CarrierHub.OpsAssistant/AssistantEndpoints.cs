@@ -17,7 +17,11 @@ public static class AssistantEndpoints
             return Results.Unauthorized();
         var token = authorization["Bearer ".Length..].Trim();
 
-        var result = await assistant.AskAsync(request.Question, token, ct);
+        var result = await assistant.AskAsync(request.Question, token, request.ConversationId, ct);
+
+        if (result.UnknownConversation)
+            return Results.NotFound(new { error = "Unknown or expired conversation. Ask again without a conversationId to start a new one." });
+
         return result.RejectedWith is { } status ? Results.StatusCode(status) : Results.Ok(result.Response);
     }
 }
