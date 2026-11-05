@@ -1,13 +1,38 @@
-﻿using CarrierHub.AssistantTools;
+﻿#pragma warning disable OPENAI001 // reasoning effort is marked experimental in the OpenAI SDK
+using Azure;
+using Azure.AI.OpenAI;
+using Azure.Identity;
+using CarrierHub.AssistantTools;
 using Microsoft.Extensions.AI;
 using OllamaSharp;
 
 namespace CarrierHub.OpsAssistant;
 
+// Which model answers: a local one through Ollama, or a deployment in Azure OpenAI. Everything else is the same.
 public sealed class AssistantOptions
+{
+    public string Provider { get; set; } = "Ollama";   // "Ollama" or "AzureOpenAI"
+    public OllamaOptions Ollama { get; set; } = new();
+    public AzureOpenAIOptions AzureOpenAI { get; set; } = new();
+
+    public bool IsAzure => Provider.Equals("AzureOpenAI", StringComparison.OrdinalIgnoreCase);
+
+    // What responses and reports call the model: "qwen2.5:7b" or "azure-chat".
+    public string ModelName => IsAzure ? $"azure-{AzureOpenAI.Deployment}" : Ollama.Model;
+}
+
+public sealed class OllamaOptions
 {
     public string Endpoint { get; set; } = "http://localhost:11434";
     public string Model { get; set; } = "qwen2.5:7b";
+}
+
+public sealed class AzureOpenAIOptions
+{
+    public string? Endpoint { get; set; }
+    public string Deployment { get; set; } = "chat";        // the deployment name, not the model name
+    public string? ApiKey { get; set; }                      // empty: sign in with an Azure identity instead
+    public string? ReasoningEffort { get; set; } = "low";    // measured in DocChat: fewer wrong answers for +0.17 s
 }
 
 // One question's outcome: the answer, or the status the Public API refused the caller with.
@@ -38,8 +63,20 @@ public sealed class Assistant(IChatClient chat, PublicApiClient api, TimeProvide
 
     // The model, automatic tool calling around it, and a trace span with token metrics for every model call.
     // The service and the evaluations both build it here, so they can't drift apart.
-    public static IChatClient CreateChatClient(AssistantOptions options, bool enableSensitiveData) =>
-        new ChatClientBuilder(new OllamaApiClient(new Uri(options.Endpoint), options.Model))
+    public static IChatClient CreateChatClient(AssistantOptions options, bool enableSensitiveData)
+    {
+        var builder = new ChatClientBuilder(options.IsAzure ? AzureModel(options.AzureOpenAI) : OllamaModel(options.Ollama));
+
+        // GPT-5 models reason before answering. The effort is set on every model call, including the ones the
+        // tool loop makes, so it lives here and not in each question's options.
+        if (options.IsAzure && !string.IsNullOrEmpty(options.AzureOpenAI.ReasoningEffort))
+        {
+            var effort = new global::OpenAI.Chat.ChatReasoningEffortLevel(options.AzureOpenAI.ReasoningEffort);
+            builder.ConfigureOptions(o =>
+                o.RawRepresentationFactory = _ => new global::OpenAI.Chat.ChatCompletionOptions { ReasoningEffortLevel = effort });
+        }
+
+        return builder
             .UseFunctionInvocation(configure: f =>
             {
                 f.MaximumIterationsPerRequest = 5;          // a model stuck calling tools stops here
@@ -47,13 +84,32 @@ public sealed class Assistant(IChatClient chat, PublicApiClient api, TimeProvide
             })
             .UseOpenTelemetry(sourceName: TelemetrySource, configure: o => o.EnableSensitiveData = enableSensitiveData)
             .Build();
+    }
+
+    private static IChatClient OllamaModel(OllamaOptions o) => new OllamaApiClient(new Uri(o.Endpoint), o.Model);
+
+    // A key where one is configured (user secrets on your PC); otherwise an Azure identity: managed identity in
+    // Azure, your own login locally.
+    private static IChatClient AzureModel(AzureOpenAIOptions o)
+    {
+        if (string.IsNullOrEmpty(o.Endpoint))
+            throw new InvalidOperationException("Set Assistant:AzureOpenAI:Endpoint to use Azure OpenAI.");
+
+        var endpoint = new Uri(o.Endpoint);
+        var client = string.IsNullOrEmpty(o.ApiKey)
+            ? new AzureOpenAIClient(endpoint, new DefaultAzureCredential())
+            : new AzureOpenAIClient(endpoint, new AzureKeyCredential(o.ApiKey));
+        return client.GetChatClient(o.Deployment).AsIChatClient();
+    }
 
     public async Task<AssistantResult> AskAsync(string question, string token, CancellationToken ct)
     {
         var tools = new ShipmentTools(api, token);
         var chatOptions = new ChatOptions
         {
-            Temperature = 0,   // the same question gets the same tool calls: what makes evaluation repeatable
+            // Ollama: temperature 0, so the same question gets the same tool calls. GPT-5 reasoning models reject a
+            // temperature; their reasoning effort is set in CreateChatClient instead.
+            Temperature = options.IsAzure ? null : 0f,
             Tools =
             [
                 AIFunctionFactory.Create(tools.CountShipments, "count_shipments"),
@@ -84,7 +140,7 @@ public sealed class Assistant(IChatClient chat, PublicApiClient api, TimeProvide
         return new(new AskResponse(
             response.Text,
             toolCalls,
-            options.Model,
+            options.ModelName,
             response.Usage?.InputTokenCount,
             response.Usage?.OutputTokenCount,
             (int)clock.GetElapsedTime(started).TotalMilliseconds), null);

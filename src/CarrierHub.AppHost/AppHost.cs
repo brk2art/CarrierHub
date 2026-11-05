@@ -93,8 +93,8 @@ gateway.WithEnvironment("ParcelGo__CallbackBaseUrl", gateway.GetEndpoint("https"
 builder.AddProject<Projects.CarrierHub_OpsAssistant>("opsassistant")
     .WithReference(publicApi)
     .WaitFor(publicApi)
-    .WithEnvironment("Ollama__Endpoint", "http://localhost:11434")
-    .WithEnvironment("Ollama__Model", "qwen2.5:7b")
-    .WithExternalHttpEndpoints();
+    .WithEnvironment("Assistant__Provider", "AzureOpenAI")            // or "Ollama" for the local model
+    .WithEnvironment("Assistant__Ollama__Endpoint", "http://localhost:11434")
+    .WithEnvironment("Assistant__Ollama__Model", "qwen2.5:7b");
 
 builder.Build().Run();

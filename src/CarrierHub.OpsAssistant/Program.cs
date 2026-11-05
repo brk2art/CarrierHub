@@ -10,7 +10,9 @@ builder.Services.AddSingleton(TimeProvider.System);
 // ServiceDefaults; the model's client doesn't, on purpose: a 10 s attempt timeout would cut answers off.
 builder.Services.AddHttpClient<PublicApiClient>(c => c.BaseAddress = new Uri("https+http://publicapi"));
 
-var options = builder.Configuration.GetSection("Ollama").Get<AssistantOptions>() ?? new AssistantOptions();
+// Which model answers: Assistant:Provider ("Ollama" or "AzureOpenAI") comes from the AppHost; the Azure endpoint
+// and key come from user secrets.
+var options = builder.Configuration.GetSection("Assistant").Get<AssistantOptions>() ?? new AssistantOptions();
 builder.Services.AddSingleton(options);
 
 // Prompts and answers go into traces in Development only.

@@ -2,12 +2,14 @@
 using System.Text;
 using System.Text.Json;
 using CarrierHub.AssistantTools;
+using Microsoft.Extensions.Configuration;
 
 namespace CarrierHub.OpsAssistant.Evals;
 
-// dotnet run --project tests/CarrierHub.OpsAssistant.Evals -- --model qwen2.5:7b --label tools-v3 [--repeat 3]
-//   [--case lookup-1] [--min 0.8]
-// Needs Ollama running; doesn't need the AppHost: the Public API is the fake one in World.cs.
+// dotnet run --project tests/CarrierHub.OpsAssistant.Evals -- --label tools-v5 [--provider AzureOpenAI] [--model qwen2.5:7b]
+//   [--reasoning low] [--repeat 3] [--case lookup-1,filter-1] [--min 0.8]
+// Ollama: needs Ollama running. Azure OpenAI: needs Assistant:AzureOpenAI:Endpoint and :ApiKey in user secrets.
+// The AppHost isn't needed either way: the Public API is the fake one in World.cs.
 internal static class EvalRunner
 {
     private static async Task<int> Main(string[] args)
@@ -18,11 +20,23 @@ internal static class EvalRunner
             return i >= 0 && i + 1 < args.Length ? args[i + 1] : null;
         }
 
-        var options = new AssistantOptions
+        // The same settings shape as the service: user secrets first, then the command line.
+        var config = new ConfigurationBuilder().AddUserSecrets(typeof(EvalRunner).Assembly, optional: true).Build();
+        var options = config.GetSection("Assistant").Get<AssistantOptions>() ?? new AssistantOptions();
+        options.Provider = Arg("--provider") ?? "Ollama";
+        if (Arg("--model") is { } model)
         {
-            Endpoint = Arg("--endpoint") ?? "http://localhost:11434",
-            Model = Arg("--model") ?? "qwen2.5:7b",
-        };
+            if (options.IsAzure) options.AzureOpenAI.Deployment = model;
+            else options.Ollama.Model = model;
+        }
+        if (Arg("--endpoint") is { } endpoint)
+        {
+            if (options.IsAzure) options.AzureOpenAI.Endpoint = endpoint;
+            else options.Ollama.Endpoint = endpoint;
+        }
+        if (Arg("--reasoning") is { } reasoning)
+            options.AzureOpenAI.ReasoningEffort = reasoning;
+
         var only = Arg("--case");
         var label = Arg("--label") ?? "run";
         var repeat = int.Parse(Arg("--repeat") ?? "1", CultureInfo.InvariantCulture);
@@ -37,8 +51,8 @@ internal static class EvalRunner
         var api = new PublicApiClient(new HttpClient(new FakePublicApi()) { BaseAddress = new Uri("https://publicapi.test") });
         var assistant = new Assistant(chat, api, new FixedTime(World.Now), options);
 
-        // The first call loads the model into memory; it isn't part of any case's time.
-        Console.WriteLine($"Model {options.Model} ({label}), {cases.Count} cases x {repeat}. Warming up...");
+        // The first call loads the model (Ollama) or opens the connection (Azure); it isn't part of any case's time.
+        Console.WriteLine($"Model {options.ModelName} ({label}), {cases.Count} cases x {repeat}. Warming up...");
         await assistant.AskAsync("How many shipments do I have?", World.Merchant1Token, CancellationToken.None);
 
         var results = new List<CaseRuns>();
@@ -68,13 +82,13 @@ internal static class EvalRunner
             Console.WriteLine($"{caseRuns.Verdict,-11} {caseRuns.Passes}/{runs.Count}  {c.Id,-14} {caseRuns.MedianMs,7} ms  {problems}");
         }
 
-        var report = Report($"{options.Model} ({label})", repeat, results);
+        var report = Report($"{options.ModelName} ({label})", repeat, results);
         Console.WriteLine();
         Console.WriteLine(report.Summary);
 
         var folder = Path.Combine(Directory.GetCurrentDirectory(), "eval-results");
         Directory.CreateDirectory(folder);
-        var file = Path.Combine(folder, $"{options.Model.Replace(':', '-')}-{label}-{DateTime.Now:yyyyMMdd-HHmmss}.md");
+        var file = Path.Combine(folder, $"{options.ModelName.Replace(':', '-')}-{label}-{DateTime.Now:yyyyMMdd-HHmmss}.md");
         await File.WriteAllTextAsync(file, report.Markdown);
         Console.WriteLine($"Report: {file}");
 

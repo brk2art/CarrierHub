@@ -5,6 +5,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <UserSecretsId>d1005495-de59-4226-bfd4-95f55d290d2e</UserSecretsId>
   </PropertyGroup>
 
   <!-- The assistant is an ASP.NET Core project; referencing it from a console app needs the ASP.NET framework. -->

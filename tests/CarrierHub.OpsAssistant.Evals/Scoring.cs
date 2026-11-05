@@ -63,7 +63,8 @@ public static class Scoring
             }
         }
 
-        var answer = result.Response.Answer.ToLowerInvariant();
+        // Models write typographic apostrophes (couldn’t); the checks use plain ones (couldn't).
+        var answer = result.Response.Answer.Replace('’', '\'').ToLowerInvariant();
         var answerOk = true;
 
         foreach (var must in c.MustContain ?? [])
