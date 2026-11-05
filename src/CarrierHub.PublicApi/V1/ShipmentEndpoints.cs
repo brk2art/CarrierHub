@@ -13,7 +13,7 @@ public static class ShipmentEndpoints
     public static void MapShipmentEndpoints(this WebApplication app)
     {
         var v1 = app.MapGroup("/v1/shipments")
-            .AddEndpointFilter(TrackingUnavailableFilter)
+            .AddEndpointFilter(TrackingUnavailable.Filter)
             .RequireRateLimiting(RateLimits.PerMerchant);
 
         v1.MapPost("/", CreateAsync).RequireAuthorization(Policies.Write);

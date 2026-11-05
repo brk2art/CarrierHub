@@ -24,3 +24,12 @@ public sealed record WebhookDelivery(string MessageId, string Type, int? StatusC
     DateTimeOffset AttemptedAt);
 
 public sealed record ShipmentCount(int Count);
+
+// What a merchant sends. The idempotency key is a header, not part of the body.
+public sealed record OpenClaimRequest(Guid ShipmentId, string Reason, string? Note);
+
+public sealed record ShipmentClaim(Guid Id, Guid ShipmentId, string MerchantReference, string Carrier,
+    string Reason, string Status, string? Note, DateTimeOffset CreatedAt);
+
+// Who the caller's token says they are, after the token was validated.
+public sealed record Me(string MerchantId, IReadOnlyList<string> Scopes);

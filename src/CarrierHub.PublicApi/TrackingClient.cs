@@ -22,6 +22,25 @@ public sealed class TrackingClient(HttpClient http)
         CancellationToken ct) =>
         http.GetAsync($"{ShipmentsPath(merchantId)}/count" + Query(status, late, reference, limit: null), ct);
 
+    // The key goes in the body to Tracking, which stores it. The retries ServiceDefaults adds to this client
+    // repeat the POST with the same key, so a retry after a timeout can never open a second claim.
+    public Task<HttpResponseMessage> OpenClaimAsync(string merchantId, OpenClaimRequest request, string idempotencyKey,
+        CancellationToken ct) =>
+        http.PostAsJsonAsync(ClaimsPath(merchantId),
+            new TrackingOpenClaimRequest(request.ShipmentId, request.Reason, request.Note, idempotencyKey), ct);
+
+    public Task<HttpResponseMessage> GetClaimAsync(string merchantId, Guid id, CancellationToken ct) =>
+        http.GetAsync($"{ClaimsPath(merchantId)}/{id}", ct);
+
+    public Task<HttpResponseMessage> ListClaimsAsync(string merchantId, Guid? shipmentId, int? limit, CancellationToken ct)
+    {
+        var query = new List<string>();
+        if (shipmentId is { } id) query.Add($"shipmentId={id}");
+        if (limit is { } take) query.Add($"limit={take}");
+
+        return http.GetAsync(ClaimsPath(merchantId) + (query.Count > 0 ? "?" + string.Join("&", query) : ""), ct);
+    }
+
     private static string Query(string? status, bool? late, string? reference, int? limit)
     {
         var query = new List<string>();
@@ -34,4 +53,9 @@ public sealed class TrackingClient(HttpClient http)
     }
 
     private static string ShipmentsPath(string merchantId) => $"/merchants/{Uri.EscapeDataString(merchantId)}/shipments";
+
+    private static string ClaimsPath(string merchantId) => $"/merchants/{Uri.EscapeDataString(merchantId)}/claims";
+
+    // Tracking's request shape: the public body plus the key from the header.
+    private sealed record TrackingOpenClaimRequest(Guid ShipmentId, string Reason, string? Note, string IdempotencyKey);
 }

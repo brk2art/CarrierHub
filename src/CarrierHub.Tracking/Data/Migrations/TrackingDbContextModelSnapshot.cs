@@ -127,6 +127,64 @@ namespace CarrierHub.Tracking.Data.Migrations
                     b.ToTable("Shipments");
                 });
 
+            modelBuilder.Entity("CarrierHub.Tracking.Domain.ShipmentClaim", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Carrier")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("MerchantId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("MerchantReference")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<Guid>("ShipmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MerchantId", "CreatedAt");
+
+                    b.HasIndex("MerchantId", "IdempotencyKey")
+                        .IsUnique();
+
+                    b.HasIndex("ShipmentId", "Reason")
+                        .IsUnique();
+
+                    b.ToTable("Claims", (string)null);
+                });
+
             modelBuilder.Entity("CarrierHub.Tracking.Domain.Shipment", b =>
                 {
                     b.OwnsMany("CarrierHub.Tracking.Domain.TrackingEvent", "Events", b1 =>
@@ -166,6 +224,15 @@ namespace CarrierHub.Tracking.Data.Migrations
                         });
 
                     b.Navigation("Events");
+                });
+
+            modelBuilder.Entity("CarrierHub.Tracking.Domain.ShipmentClaim", b =>
+                {
+                    b.HasOne("CarrierHub.Tracking.Domain.Shipment", null)
+                        .WithMany()
+                        .HasForeignKey("ShipmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 #pragma warning restore 612, 618
         }

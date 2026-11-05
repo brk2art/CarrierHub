@@ -38,6 +38,7 @@ app.UseHttpsRedirection();
 
 app.MapGet("/", () => "CarrierHub Tracking");
 app.MapShipmentEndpoints();
+app.MapClaimEndpoints();
 
 // Development only: what's waiting in the outbox, and what went out.
 if (app.Environment.IsDevelopment())

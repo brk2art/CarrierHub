@@ -14,6 +14,7 @@ public sealed class TrackingDbContext(DbContextOptions<TrackingDbContext> option
     };
 
     public DbSet<Shipment> Shipments => Set<Shipment>();
+    public DbSet<ShipmentClaim> Claims => Set<ShipmentClaim>();
     public DbSet<OutboxMessage> Outbox => Set<OutboxMessage>();
 
     // Every save turns the shipments' domain events into outbox rows first, so the change and its
@@ -95,6 +96,27 @@ public sealed class TrackingDbContext(DbContextOptions<TrackingDbContext> option
             e.Property(x => x.Description).HasMaxLength(500);
         });
         shipment.Navigation(s => s.Events).UsePropertyAccessMode(PropertyAccessMode.Field);
+
+        var claim = modelBuilder.Entity<ShipmentClaim>();
+        claim.ToTable("Claims");
+        claim.HasKey(c => c.Id);
+        claim.Property(c => c.Id).ValueGeneratedNever();   // the domain creates it (Guid v7)
+        claim.Property(c => c.MerchantId).HasMaxLength(64);
+        claim.Property(c => c.MerchantReference).HasMaxLength(100);
+        claim.Property(c => c.Carrier).HasMaxLength(50);
+        claim.Property(c => c.Reason).HasConversion<string>().HasMaxLength(32);
+        claim.Property(c => c.Status).HasConversion<string>().HasMaxLength(32);
+        claim.Property(c => c.Note).HasMaxLength(ShipmentClaim.MaxNoteLength);
+        claim.Property(c => c.IdempotencyKey).HasMaxLength(ShipmentClaim.MaxIdempotencyKeyLength);
+        // A claim always belongs to a real shipment; a shipment with claims can't be deleted by accident.
+        claim.HasOne<Shipment>().WithMany().HasForeignKey(c => c.ShipmentId).OnDelete(DeleteBehavior.Restrict);
+
+        // The idempotency rule: the same key can't create two claims, even when two requests race.
+        claim.HasIndex(c => new { c.MerchantId, c.IdempotencyKey }).IsUnique();
+        // One claim per shipment and reason: two approvals of two different proposals still give one "Late" claim.
+        claim.HasIndex(c => new { c.ShipmentId, c.Reason }).IsUnique();
+        // "This merchant's claims, newest first."
+        claim.HasIndex(c => new { c.MerchantId, c.CreatedAt });
 
         var outbox = modelBuilder.Entity<OutboxMessage>();
         outbox.ToTable("OutboxMessages");

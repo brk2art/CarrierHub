@@ -1,0 +1,73 @@
+@shipmentId = 01a17994-dc64-770c-9dbf-bac239cff2f1
+
+### 1. Find a late shipment that's still in transit (merchant-1)
+# @name late
+GET {{publicapi}}/v1/shipments?late=true&limit=5
+Authorization: Bearer {{readonly1}}
+
+### 2. Open a Late claim: 201
+POST {{publicapi}}/v1/claims
+Authorization: Bearer {{merchant1}}
+Content-Type: application/json
+Idempotency-Key: test-claim-001
+
+{ "shipmentId": "{{shipmentId}}", "reason": "Late", "note": "Promised date passed." }
+
+### 3. Exactly the same again (a retry): 200, the SAME claim id as in 2
+POST {{publicapi}}/v1/claims
+Authorization: Bearer {{merchant1}}
+Content-Type: application/json
+Idempotency-Key: test-claim-001
+
+{ "shipmentId": "{{shipmentId}}", "reason": "Late", "note": "Promised date passed." }
+
+### 4. The same key, a different note: 422
+POST {{publicapi}}/v1/claims
+Authorization: Bearer {{merchant1}}
+Content-Type: application/json
+Idempotency-Key: test-claim-001
+
+{ "shipmentId": "{{shipmentId}}", "reason": "Late", "note": "Something else." }
+
+### 5. A new key, the same shipment and reason: 409 with claimId
+POST {{publicapi}}/v1/claims
+Authorization: Bearer {{merchant1}}
+Content-Type: application/json
+Idempotency-Key: test-claim-002
+
+{ "shipmentId": "{{shipmentId}}", "reason": "Late" }
+
+### 6. Damaged on a shipment that isn't delivered: 409 (the domain rule)
+POST {{publicapi}}/v1/claims
+Authorization: Bearer {{merchant1}}
+Content-Type: application/json
+Idempotency-Key: test-claim-005
+
+{ "shipmentId": "{{shipmentId}}", "reason": "Lost" }
+
+### 7. No Idempotency-Key: 400
+POST {{publicapi}}/v1/claims
+Authorization: Bearer {{merchant1}}
+Content-Type: application/json
+
+{ "shipmentId": "{{shipmentId}}", "reason": "Lost" }
+
+### 8. A read-only token tries to write: 403
+POST {{publicapi}}/v1/claims
+Authorization: Bearer {{readonly1}}
+Content-Type: application/json
+Idempotency-Key: test-claim-004
+
+{ "shipmentId": "{{shipmentId}}", "reason": "Lost" }
+
+### 9. merchant-1's claims: exactly ONE
+GET {{publicapi}}/v1/claims
+Authorization: Bearer {{readonly1}}
+
+### 10. merchant-2's claims: [] (isolation)
+GET {{publicapi}}/v1/claims
+Authorization: Bearer {{merchant2}}
+
+### 11. Who am I? merchant-1, read scope only
+GET {{publicapi}}/v1/me
+Authorization: Bearer {{readonly1}}

@@ -61,6 +61,7 @@ app.UseRateLimiter();   // after authentication, so the merchant is known; rejec
 
 app.MapGet("/", () => "CarrierHub Public API");
 app.MapShipmentEndpoints();
+app.MapClaimEndpoints();
 app.MapWebhookEndpoints();
 app.MapDefaultEndpoints();
 
