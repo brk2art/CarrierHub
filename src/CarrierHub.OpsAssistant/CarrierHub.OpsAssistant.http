@@ -1,3 +1,6 @@
+@actionId = 01a1b2ff-ea44-7115-a9c1-c22ab6f2c938
+@rejectId = 01a1b2ec-dca1-7d91-86d9-9e70394f5ef0
+
 ### 1. One shipment: expect get_shipment_timeline(reference = ORDER-20001)
 POST {{opsassistant}}/v1/assistant/ask
 Authorization: Bearer {{merchant1Read}}
@@ -73,3 +76,103 @@ Authorization: Bearer {{readonly1}}
 Content-Type: application/json
 
 { "question": "Which of my shipments are late?" }
+
+### 3c-0. Which scopes does the write token have? (expect shipments:write)
+GET {{publicapi}}/v1/me
+Authorization: Bearer {{merchant1}}
+
+### 3c-1. Prepare a claim → copy pendingActions[0].id into @actionId at the top
+POST {{opsassistant}}/v1/assistant/ask
+Authorization: Bearer {{readonly1}}
+Content-Type: application/json
+
+{ "question": "ORDER-20002 arrived damaged, the box was crushed. Please open a claim with the carrier." }
+
+### 3c-2. Look at it: Pending, audit "Proposed"
+GET {{opsassistant}}/v1/assistant/actions/{{actionId}}
+Authorization: Bearer {{readonly1}}
+
+### 3c-3. Approve with the READ-ONLY token: 403, audit "ApprovalRefused"
+POST {{opsassistant}}/v1/assistant/actions/{{actionId}}/approve
+Authorization: Bearer {{readonly1}}
+
+### 3c-4. Approve with the WRITE token: 200, Executed, claimId
+POST {{opsassistant}}/v1/assistant/actions/{{actionId}}/approve
+Authorization: Bearer {{merchant1}}
+
+### 3c-5. Approve again: 200, the SAME claimId, nothing new
+POST {{opsassistant}}/v1/assistant/actions/{{actionId}}/approve
+Authorization: Bearer {{merchant1}}
+
+### 3c-6. The real claims: ORDER-20002 Damaged appears ONCE
+GET {{publicapi}}/v1/claims
+Authorization: Bearer {{readonly1}}
+
+### 3c-7. Ask again: the assistant now says it already has a Damaged claim
+POST {{opsassistant}}/v1/assistant/ask
+Authorization: Bearer {{readonly1}}
+Content-Type: application/json
+
+{ "question": "ORDER-20002 arrived damaged, the box was crushed. Please open a claim with the carrier." }
+
+### 3c-8. Prepare another → copy pendingActions[0].id into @rejectId at the top
+POST {{opsassistant}}/v1/assistant/ask
+Authorization: Bearer {{readonly1}}
+Content-Type: application/json
+
+{ "question": "ORDER-20001 arrived with a broken corner. Please open a damage claim." }
+
+### 3c-9. Reject it with the READ-ONLY token: 200, Rejected
+POST {{opsassistant}}/v1/assistant/actions/{{rejectId}}/reject
+Authorization: Bearer {{readonly1}}
+
+### 3c-10. Approve the rejected one: 409
+POST {{opsassistant}}/v1/assistant/actions/{{rejectId}}/approve
+Authorization: Bearer {{merchant1}}
+
+### 3c-11. merchant-2 looks at merchant-1's action: 404
+GET {{opsassistant}}/v1/assistant/actions/{{actionId}}
+Authorization: Bearer {{merchant2}}
+
+### 3c-12. All of merchant-1's actions
+GET {{opsassistant}}/v1/assistant/actions
+Authorization: Bearer {{readonly1}}
+
+### Crash 1: prepare
+POST {{opsassistant}}/v1/assistant/ask
+Authorization: Bearer {{readonly1}}
+Content-Type: application/json
+
+{ "question": "ORDER-20001 arrived damaged. Please open a damage claim." }
+
+### Crash 3/5: approve (send once with tracking STOPPED, once after it's running again)
+POST {{opsassistant}}/v1/assistant/actions/01a1b2f8-ac09-7145-ac66-990a52f7ff1a/approve
+Authorization: Bearer {{merchant1}}
+
+### Crash 6: the real claims
+GET {{publicapi}}/v1/claims
+Authorization: Bearer {{readonly1}}
+
+
+### Check 1. Prepare a proposal → copy pendingActions[0].id
+POST {{opsassistant}}/v1/assistant/ask
+Authorization: Bearer {{readonly1}}
+Content-Type: application/json
+
+{ "question": "LOAD-862103-3-4800 arrived damaged. Please open a damage claim." }
+
+### Check 2. Approve (send with tracking STOPPED; a 20 s timeout in Visual Studio is expected)
+POST {{opsassistant}}/v1/assistant/actions/{{actionId}}/approve
+Authorization: Bearer {{merchant1}}
+
+### Check 3. Look at it (about 30 s after Check 2): Approved, last audit line ExecutionUnknown
+GET {{opsassistant}}/v1/assistant/actions/{{actionId}}
+Authorization: Bearer {{readonly1}}
+
+### Check 4. Approve again (send with tracking RUNNING): 200, Executed, audit ApprovedAgain
+POST {{opsassistant}}/v1/assistant/actions/{{actionId}}/approve
+Authorization: Bearer {{merchant1}}
+
+### Check 5. The real claims: LOAD-862103-3-4800 Damaged appears ONCE
+GET {{publicapi}}/v1/claims
+Authorization: Bearer {{readonly1}}

@@ -9,7 +9,7 @@ public sealed record ApiResult<T>(int StatusCode, T? Value);
 public sealed record ShipmentCount(int Count);
 
 // Who the token belongs to, as the Public API validated it.
-public sealed record Me(string MerchantId, IReadOnlyList<string> Scopes);
+public sealed record Me(string MerchantId, IReadOnlyList<string> Scopes, string? Subject = null);
 
 public sealed record ShipmentClaim(Guid Id, Guid ShipmentId, string MerchantReference, string Carrier,
     string Reason, string Status, string? Note, DateTimeOffset CreatedAt);

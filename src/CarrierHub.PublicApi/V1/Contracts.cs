@@ -31,5 +31,5 @@ public sealed record OpenClaimRequest(Guid ShipmentId, string Reason, string? No
 public sealed record ShipmentClaim(Guid Id, Guid ShipmentId, string MerchantReference, string Carrier,
     string Reason, string Status, string? Note, DateTimeOffset CreatedAt);
 
-// Who the caller's token says they are, after the token was validated.
-public sealed record Me(string MerchantId, IReadOnlyList<string> Scopes);
+// Who the caller's token says they are, after the token was validated. Subject: the person or client (the "sub" claim).
+public sealed record Me(string MerchantId, IReadOnlyList<string> Scopes, string? Subject = null);

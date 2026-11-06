@@ -74,7 +74,8 @@ public static class ClaimEndpoints
                 .SelectMany(c => c.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries))
                 .Distinct()
                 .Order()
-                .ToList()));
+                .ToList(),
+            user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub")));
 
     private static async Task<IResult> ForwardAsync<T>(HttpResponseMessage response, CancellationToken ct)
     {

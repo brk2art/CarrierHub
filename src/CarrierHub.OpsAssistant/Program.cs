@@ -10,6 +10,10 @@ builder.Services.AddSingleton(TimeProvider.System);
 // ServiceDefaults; the model's client doesn't, on purpose: a 10 s attempt timeout would cut answers off.
 builder.Services.AddHttpClient<PublicApiClient>(c => c.BaseAddress = new Uri("https+http://publicapi"));
 
+// The only client that writes, used only by the approval endpoint. Its retries (from ServiceDefaults) repeat the
+// POST with the same Idempotency-Key, so they can't open a second claim.
+builder.Services.AddHttpClient<ClaimExecutor>(c => c.BaseAddress = new Uri("https+http://publicapi"));
+
 // Which model answers: Assistant:Provider ("Ollama" or "AzureOpenAI") comes from the AppHost; the Azure endpoint
 // and key come from user secrets.
 var options = builder.Configuration.GetSection("Assistant").Get<AssistantOptions>() ?? new AssistantOptions();
@@ -26,6 +30,7 @@ var app = builder.Build();
 
 app.MapGet("/", () => "CarrierHub Ops Assistant");
 app.MapAssistant();
+app.MapActions();
 app.MapDefaultEndpoints();
 
 app.Run();
