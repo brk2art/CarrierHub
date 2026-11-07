@@ -2,10 +2,10 @@
 
 A shipment-tracking integration platform in .NET 10: it takes events from carriers with different,
 unreliable APIs, turns them into one correct timeline per shipment, and serves it to merchants through
-a secure public API and signed webhooks. An AI ops assistant will answer questions about shipments
-through the same API, with the caller's permissions.
+a secure public API and signed webhooks. An AI ops assistant answers merchants' questions through the same
+API, with the caller's permissions, and can prepare a claim with the carrier that only a person can approve.
 
-**Status:** Phase 4 of 7 done (observability and load). [Roadmap](#roadmap)
+**Status:** Phase 5 of 7 in progress (AI assistant). [Roadmap](#roadmap)
 
 ## Architecture today
 
@@ -16,7 +16,7 @@ flowchart LR
     PG[ParcelGo<br/>webhooks, HMAC-signed] --> G
     G[Carrier Gateway<br/>adapters, per-carrier resilience] --> Q[[carrier-events queue<br/>session per shipment]]
     G <--> R[(Redis<br/>dedupe, rate limits)]
-    Q --> T[Tracking Service<br/>state machine + outbox]
+    Q --> T[Tracking Service<br/>state machine + outbox<br/>claims]
     T --> DB[(PostgreSQL)]
     T -- outbox publisher --> TP[[shipment-events topic]]
     TP --> N[Notification Service<br/>signed webhooks, retries, dead-letter]
@@ -24,6 +24,10 @@ flowchart LR
     M[Merchant] -- "JWT (merchant_id, scopes)" --> P[Public API<br/>auth, rate limit, v1 contract]
     P --> T
     P --> N
+    M -- "question + own token" --> A[Ops Assistant<br/>Agent Framework, Azure OpenAI]
+    A -- "tools, caller's token" --> P
+    A --> ADB[(assistantdb<br/>pending actions, audit)]
+    H[Person approving] -- "write token" --> A
 ```
 
 The queue and the topic are Azure Service Bus (the local emulator in development). The three carriers
@@ -31,6 +35,24 @@ and the merchant are simulated (`CarrierHub.MockCarriers`) so their failures can
 errors, latency, duplicates, shuffled order and rate limits.
 
 ## What works
+
+**AI ops assistant (Phase 5)** ([how it works and what the evaluations found](docs/ops-assistant.md))
+- **Answers questions with tools over the Public API**, using the caller's own token: it can never see more than
+  the person asking. Count, search, "needs attention" and timeline tools; conversations with follow-up questions.
+- **Prepares a claim, never opens one.** Its `propose_open_claim` tool checks the shipment, the claim rules and
+  existing claims, and stores a pending action. A person approves through an HTTP endpoint the model can't call,
+  with their own token and the `shipments:write` scope; the assistant's own token is read-only.
+- **Exactly once, even through a crash.** Each action's idempotency key is fixed when it is proposed; Tracking's
+  unique indexes turn every retry, double click or resumed approval into the same single claim. A call with no
+  answer leaves the action "approved, not executed", visible and safe to approve again.
+- **Every step in an audit trail**, saved in the same transaction as the change, in PostgreSQL (`assistantdb`).
+- **Measured, not assumed**: 35 evaluation scenarios, each run 3 times, including prompt injection in carrier data
+  and an injection aimed at actions. The evaluations found the model inventing statements in claim notes
+  ("Customer says…"); fixed and measured.
+- **The same tools as an MCP server** (`CarrierHub.McpServer`, stdio), usable from MCP clients such as Claude Code,
+  with the merchant's token.
+- **Claims in the Public API**: `POST /v1/claims` with a required `Idempotency-Key` header and the write scope,
+  `GET /v1/claims`, and `GET /v1/me` (who the validated token belongs to).
 
 **Observability and load (Phase 4)**
 - **One trace per carrier event**, from the carrier poll or webhook to the merchant's webhook: 23 spans across
@@ -84,11 +106,26 @@ errors, latency, duplicates, shuffled order and rate limits.
 - **Safe under concurrent writes**: the database rejects a duplicate even when two requests race, and
   optimistic concurrency (PostgreSQL `xmin`) prevents lost updates.
 - **Merchants only see their own data**: the merchant comes from the JWT, never from the URL.
-  Read and write are separate scopes; the AI assistant will get a read-only token.
+  Read and write are separate scopes; the AI assistant uses the caller's token, so a read-only token makes it
+  read-only.
 - **Per-merchant rate limiting**, a public `/v1` contract of its own, and a clean 502 when a backend
   service is down.
 
 ## Measured results
+
+**Phase 5: AI assistant** (details in [docs/ops-assistant.md](docs/ops-assistant.md))
+
+| What | Result |
+|---|---|
+| Choosing the model (22 questions × 3) | qwen2.5:7b on a 4 GB laptop GPU: 63/66, with timeouts, 8–22 s. gpt-5.4-mini on Azure OpenAI: **66/66**, P50 1.6 s, about $0.002 per question. The tool descriptions carried over unchanged. |
+| Agent Framework with conversations (25 × 3) | **75/75**, including follow-up questions that refer to an earlier answer. |
+| Actions (35 × 3) | First run **98/105**: every safety check passed (0 write attempts, the injection aimed at actions ignored every time), but the model invented statements in claim notes in 5 of 12 runs. One tool description and one prompt rule later: **105/105**, P50 1.4 s, about $2.50 per 1,000 questions. |
+| Crash during an approval | Tracking stopped mid-approval, the assistant restarted while the action was "approved, not executed". Approving again opened **exactly one** claim; the audit trail shows every step, including the call that got no answer. |
+
+Lesson: a manual test showed the invented note once; repeated runs showed it was the model's usual behaviour,
+caused by a parameter description that asked for "one short sentence". The rules that keep the system safe
+(approval, scopes, idempotency, merchant isolation) are in code and permissions; the evaluations measure the
+model's behaviour around them.
 
 **Phase 4: observability and load**
 
@@ -130,12 +167,14 @@ a metric per HTTP try (Phase 4).
 | Public API | 10 | Merchant from token, scopes, no internal fields, 502 on failure, rate limit per merchant, webhook endpoints |
 | Carrier contracts | 18 | Real payloads per carrier; summer, winter and both clock-change hours; signatures, tampering and replays |
 | Notification | 5 | Signed merchant webhooks, delivery log, one success per message |
+| Ops Assistant evaluations | 35 scenarios × 3 | Right tool, arguments, answer and actions: lookups, counts, isolation, prompt injection, conversations, claims prepared, refused and never approved by the model |
 
 ```
 dotnet test
 ```
 
-Docker must be running: the Tracking tests start their own PostgreSQL container.
+Docker must be running: the Tracking tests start their own PostgreSQL container. The assistant's evaluations call a
+real model, so they run separately (see [Run it](#run-it)).
 
 ## Run it
 
@@ -147,6 +186,14 @@ Set the webhook secret once (any long random value; it stays in your user secret
 dotnet user-secrets set "Parameters:parcelgo-webhook-secret" "<a long random value>" --project src/CarrierHub.AppHost
 ```
 
+For the ops assistant, set an Azure OpenAI endpoint and key (a deployment named `chat`; the evaluations share the
+same user secrets). Without them, set `Assistant__Provider` to `Ollama` in the AppHost to use a local model.
+
+```
+dotnet user-secrets set "Assistant:AzureOpenAI:Endpoint" "https://<resource>.openai.azure.com/" --project src/CarrierHub.OpsAssistant
+dotnet user-secrets set "Assistant:AzureOpenAI:ApiKey" "<key>" --project src/CarrierHub.OpsAssistant
+```
+
 Then:
 
 ```
@@ -154,20 +201,35 @@ dotnet run --project src/CarrierHub.AppHost
 ```
 
 This starts PostgreSQL, Redis, the Azure Service Bus emulator, the mock carriers and merchant, the Carrier
-Gateway, Tracking, Notification and the Public API, and prints a link to the Aspire dashboard (logs,
-traces, metrics). No Azure subscription is needed. The `.http` files in each project hold ready-made
-requests, including fault injection for the mock carriers and the merchant. Useful checks:
+Gateway, Tracking, Notification, the Public API and the Ops Assistant, and prints a link to the Aspire dashboard
+(logs, traces, metrics). No Azure subscription is needed apart from the assistant's model. The `.http` files in each
+project hold ready-made requests, including fault injection for the mock carriers and the merchant, claims
+(`src/CarrierHub.PublicApi/claims.http`) and the assistant's questions and approvals. Useful checks:
 
 - `GET /stats` on the Gateway: events published and repeats skipped
 - `GET /merchant-hooks/merchant-1` on MockCarriers: what the merchant received
 - `GET /v1/webhook/deliveries` on the Public API: every delivery attempt
+- `GET /v1/assistant/actions` on the Ops Assistant: what it prepared, with each action's audit trail
 
-Development tokens come from `dotnet user-jwts`:
+Development tokens come from `dotnet user-jwts`. One that can write (and approve the assistant's actions), and a
+read-only one for the assistant:
 
 ```
 cd src/CarrierHub.PublicApi
 dotnet user-jwts create --claim merchant_id=merchant-1 --scope shipments:read --scope shipments:write
+dotnet user-jwts create --claim merchant_id=merchant-1 --scope shipments:read
 ```
+
+### Assistant evaluations
+
+They need no AppHost and no database: the Public API is a fake one with fixed data (`World.cs`).
+
+```
+dotnet run --project tests/CarrierHub.OpsAssistant.Evals -- --provider AzureOpenAI --repeat 3 --label my-run
+```
+
+Options: `--case act-1,act-2`, `--model`, `--reasoning low|medium|high`, `--min 0.95` (exit code 1 below it). A full
+run costs about 25 cents; a report with every failing answer goes to `eval-results/`.
 
 ### Load tests
 
@@ -199,6 +261,9 @@ Start each comparison from an empty database (delete the postgres volume), and w
 12. [Session consumers: many slots, a short idle; the emulator is the local ceiling](docs/adr/0012-session-consumers-and-the-local-ceiling.md)
 13. [What limited throughput locally, and what we changed](docs/adr/0013-what-limited-throughput-locally.md)
 
+For the AI assistant (the agent proposes and a person approves, enforcement in code and permissions, idempotency
+from the proposal, "no answer" as a state of its own): [docs/ops-assistant.md](docs/ops-assistant.md).
+
 ## Roadmap
 
 | Phase | What | Status |
@@ -207,7 +272,7 @@ Start each comparison from an empty database (delete the postgres volume), and w
 | 2. Carrier integration | Mock carriers with fault injection, Carrier Gateway, resilience, signed webhooks | Done |
 | 3. Messaging | Azure Service Bus, transactional outbox, merchant webhooks | Done |
 | 4. Observability and load | One trace per carrier event, k6 load tests with real numbers | Done |
-| 5. AI assistant | Tool calling over the Public API, RAG over carrier SLAs, evaluations, MCP | Next |
+| 5. AI assistant | Tool calling over the Public API, evaluations, MCP, actions with human approval | In progress: RAG over carrier SLAs next |
 | 6. Cloud delivery | Docker, Helm, Terraform, AKS, GitHub Actions | Planned |
 | 7. Publish | Demo video, final write-up | Planned |
 
@@ -216,10 +281,14 @@ instead of immediate redelivery, encrypted webhook secrets, and an SSRF guard on
 From Phase 4: queue depth per Service Bus entity, a sampling policy, warm-up before readiness, ordering the
 active-shipments query by creation, a shared polling schedule for several Gateway instances, and capacity
 numbers on Azure.
+From Phase 5: RAG over carrier SLAs, a page for approvals, conversations in a database (they are in memory for
+30 minutes), the claim-note rule in code (today it is an instruction, measured at 105/105), an MCP server over HTTP,
+and clean-up of old actions.
 
 ## Tech
 
 .NET 10, ASP.NET Core minimal APIs, EF Core with PostgreSQL (Npgsql), Azure Service Bus
 (Azure.Messaging.ServiceBus, local emulator), Redis (StackExchange.Redis), Aspire, OpenTelemetry, Polly
 (Microsoft.Extensions.Http.Resilience), JWT bearer authentication, ASP.NET Core rate limiting,
-HMAC-SHA256 webhook signatures, xUnit, Testcontainers, k6.
+HMAC-SHA256 webhook signatures, xUnit, Testcontainers, k6. AI: Microsoft Agent Framework,
+Microsoft.Extensions.AI, Azure OpenAI (gpt-5.4-mini), Ollama, Model Context Protocol (C# SDK).
