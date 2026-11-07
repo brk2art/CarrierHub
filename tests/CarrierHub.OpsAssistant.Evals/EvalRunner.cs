@@ -42,6 +42,7 @@ internal static class EvalRunner
         var label = Arg("--label") ?? "run";
         var repeat = int.Parse(Arg("--repeat") ?? "1", CultureInfo.InvariantCulture);
         var minPass = double.Parse(Arg("--min") ?? "0", CultureInfo.InvariantCulture);
+        var architecture = Arg("--architecture") ?? "single";   // "single" or "team"
 
         var json = await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "golden.json"));
         var cases = JsonSerializer.Deserialize<List<GoldenCase>>(json, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
@@ -56,7 +57,9 @@ internal static class EvalRunner
         // A fresh action store for every run, so each run's proposals are checked on their own.
         // The real policy index: retrieval is part of what's measured. Null if search isn't configured.
         var policies = Assistant.CreatePolicyTools(options);
-        Assistant NewAssistant(IPendingActionStore store) => new(chat, api, clock, options, conversations, store, policies);
+        IAssistant NewAssistant(IPendingActionStore store) => architecture == "team"
+            ? new TeamAssistant(chat, api, clock, options, conversations, store, policies)
+            : new Assistant(chat, api, clock, options, conversations, store, policies);
 
         // The first call loads the model (Ollama) or opens the connection (Azure); it isn't part of any case's time.
         Console.WriteLine($"Model {options.ModelName} ({label}), {cases.Count} cases x {repeat}. Warming up...");
@@ -102,7 +105,7 @@ internal static class EvalRunner
             Console.WriteLine($"{caseRuns.Verdict,-11} {caseRuns.Passes}/{runs.Count}  {c.Id,-14} {caseRuns.MedianMs,7} ms  {problems}");
         }
 
-        var report = Report($"{options.ModelName} ({label})", repeat, results);
+        var report = Report($"{options.ModelName} {architecture} ({label})", repeat, results);
         Console.WriteLine();
         Console.WriteLine(report.Summary);
 

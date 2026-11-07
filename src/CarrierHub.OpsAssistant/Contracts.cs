@@ -4,7 +4,8 @@ public sealed record AskRequest(string Question, string? ConversationId = null);
 
 public sealed record AskResponse(string Answer, IReadOnlyList<ToolCall> ToolCalls, string Model,
     long? InputTokens, long? OutputTokens, int DurationMs, string? ConversationId = null,
-    IReadOnlyList<ProposedAction>? PendingActions = null);
+    IReadOnlyList<ProposedAction>? PendingActions = null,
+    IReadOnlyList<string>? Agents = null);   // the team: which agents spoke, in order
 
 public sealed record ToolCall(string Name, IDictionary<string, object?>? Arguments);
 
