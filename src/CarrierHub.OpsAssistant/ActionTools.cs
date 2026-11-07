@@ -27,7 +27,9 @@ public sealed class ActionTools(PublicApiClient api, string token, string conver
     public async Task<object> ProposeOpenClaim(
         [Description("The merchant's order number, for example ORDER-1004.")] string orderNumber,
         [Description("Late, Lost or Damaged.")] string reason,
-        [Description("Optional: one short sentence for the carrier, based only on what the user said.")] string? note = null,
+        [Description("Optional. Only the user's own words about what happened, for example \"the box was crushed\". " +
+                     "Leave it out when the user said nothing beyond the reason. Never say who reported it, and never " +
+                     "add facts from the tools: the claim already names the shipment and the reason.")] string? note = null,
         CancellationToken ct = default)
     {
         var canonical = Reasons.FirstOrDefault(r => r.Equals(reason?.Trim(), StringComparison.OrdinalIgnoreCase));

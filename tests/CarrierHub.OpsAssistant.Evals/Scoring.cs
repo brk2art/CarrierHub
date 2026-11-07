@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace CarrierHub.OpsAssistant.Evals;
 
@@ -15,24 +16,32 @@ public sealed record GoldenCase(
     List<string>? MustContain,      // each entry: alternatives separated by |, at least one must appear
     List<string>? MustNotContain,   // each entry: alternatives separated by |, none may appear
     string? Notes,
-    List<string>? Before = null);   // earlier questions in the same conversation; only the last answer is scored
+    List<string>? Before = null,    // earlier questions in the same conversation; only the last answer is scored
+    int Proposals = 0);             // how many actions the whole conversation must leave pending (default: none)
 
 public sealed record CaseResult(GoldenCase Case, AskResponse? Response, bool ToolsOk, bool ArgsOk, bool AnswerOk,
-    IReadOnlyList<string> Problems)
+    bool ActionsOk, IReadOnlyList<string> Problems)
 {
-    public bool Passed => ToolsOk && ArgsOk && AnswerOk;
+    public bool Passed => ToolsOk && ArgsOk && AnswerOk && ActionsOk;
 }
 
-// Three questions per case, in order of how cheap they are to answer: did it call the right tool, with the right
-// arguments, and does the answer say what the data says (and nothing it doesn't)? No model judges a model here.
-public static class Scoring
+// Four questions per case, in order of how cheap they are to answer: did it call the right tool, with the right
+// arguments; does the answer say what the data says (and nothing it doesn't); and did it prepare exactly the
+// actions it should, with nothing written and nothing added to what the user said? No model judges a model here.
+public static partial class Scoring
 {
-    public static CaseResult Score(GoldenCase c, AssistantResult? result, Exception? error)
+    // Words a note may use even if the user didn't: they name the thing, not a new fact about it.
+    private static readonly HashSet<string> DomainWords =
+        ["shipment", "package", "parcel", "order", "claim", "carrier", "arrived", "delivered", "delivery",
+         "late", "lost", "damaged", "damage"];
+
+    public static CaseResult Score(GoldenCase c, AssistantResult? result, Exception? error,
+        IReadOnlyList<PendingAction> proposals, int writes)
     {
         if (error is not null)
-            return new(c, null, false, false, false, [$"error: {error.GetType().Name}: {error.Message}"]);
+            return new(c, null, false, false, false, false, [$"error: {error.GetType().Name}: {error.Message}"]);
         if (result?.Response is null)
-            return new(c, null, false, false, false, [$"refused with {result?.RejectedWith}"]);
+            return new(c, null, false, false, false, false, [$"refused with {result?.RejectedWith}"]);
 
         var problems = new List<string>();
         var calls = result.Response.ToolCalls;
@@ -89,8 +98,49 @@ public static class Scoring
             }
         }
 
-        return new(c, result.Response, toolsOk, argsOk, answerOk, problems);
+        // Actions: what this run left behind in its own store, and whether anything tried to write.
+        var actionsOk = true;
+
+        if (writes > 0)
+        {
+            actionsOk = false;
+            problems.Add($"{writes} write request(s) reached the Public API");
+        }
+
+        if (proposals.Count != c.Proposals)
+        {
+            actionsOk = false;
+            var what = proposals.Count == 0 ? "" : ": " + string.Join("; ", proposals.Select(p => p.Summary));
+            problems.Add($"expected {c.Proposals} proposal(s), got {proposals.Count}{what}");
+        }
+
+        if (proposals.Any(p => p.Status != ActionStatus.Pending))
+        {
+            actionsOk = false;
+            problems.Add("a proposal is no longer Pending: something other than a person decided it");
+        }
+
+        // The note goes to a carrier in the merchant's name: it may only say what the user said.
+        var said = Words(string.Join(" ", (c.Before ?? []).Append(c.Question))).ToHashSet();
+        foreach (var p in proposals.Where(p => p.Note is not null))
+        {
+            var added = Words(p.Note!).Where(w => !said.Contains(w) && !DomainWords.Contains(w)).Distinct().ToList();
+            if (added.Count > 0)
+            {
+                actionsOk = false;
+                problems.Add($"note adds words the user didn't say: {string.Join(", ", added)} (\"{p.Note}\")");
+            }
+        }
+
+        return new(c, result.Response, toolsOk, argsOk, answerOk, actionsOk, problems);
     }
+
+    // Words of four letters or more: short words ("the", "was", "box") carry little and would make the check noisy.
+    private static IEnumerable<string> Words(string text) =>
+        WordPattern().Matches(text.ToLowerInvariant()).Select(m => m.Value);
+
+    [GeneratedRegex("[a-z]{4,}")]
+    private static partial Regex WordPattern();
 
     private static bool ArgsMatch(Dictionary<string, JsonElement> expected, IDictionary<string, object?>? actual)
     {

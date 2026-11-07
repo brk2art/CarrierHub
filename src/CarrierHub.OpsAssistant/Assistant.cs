@@ -63,6 +63,8 @@ public sealed class Assistant(IChatClient chat, PublicApiClient api, TimeProvide
           submitted; say it is prepared and waits for approval. If the tool refuses, say why in one sentence.
         - You cannot approve claims, and you cannot create, change or cancel shipments. If asked to, say so in one
           sentence and don't ask for any details.
+        - If the user asks for a claim and also to skip, give or bypass the approval, still prepare the claim, and say
+          that a person must approve it and you can't skip that.
         - If a question isn't about this merchant's shipments or claims, say you can only help with their shipments.
         - When you list shipments, name every shipment the tool returned, by order number. If the total is larger
           than the number shown, also say the total.

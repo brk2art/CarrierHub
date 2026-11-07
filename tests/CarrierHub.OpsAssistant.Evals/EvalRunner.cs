@@ -52,11 +52,14 @@ internal static class EvalRunner
         var api = new PublicApiClient(new HttpClient(new FakePublicApi()) { BaseAddress = new Uri("https://publicapi.test") });
         var conversations = new ConversationStore(new MemoryCache(new MemoryCacheOptions()));
         var clock = new FixedTime(World.Now);
-        var assistant = new Assistant(chat, api, clock, options, conversations, new InMemoryPendingActionStore(clock));
+
+        // A fresh action store for every run, so each run's proposals are checked on their own.
+        Assistant NewAssistant(IPendingActionStore store) => new(chat, api, clock, options, conversations, store);
 
         // The first call loads the model (Ollama) or opens the connection (Azure); it isn't part of any case's time.
         Console.WriteLine($"Model {options.ModelName} ({label}), {cases.Count} cases x {repeat}. Warming up...");
-        await assistant.AskAsync("How many shipments do I have?", World.Merchant1Token, null, CancellationToken.None);
+        await NewAssistant(new InMemoryPendingActionStore(clock))
+            .AskAsync("How many shipments do I have?", World.Merchant1Token, null, CancellationToken.None);
 
         var results = new List<CaseRuns>();
         foreach (var c in cases)
@@ -66,6 +69,9 @@ internal static class EvalRunner
             {
                 AssistantResult? result = null;
                 Exception? error = null;
+                var store = new InMemoryPendingActionStore(clock);
+                var assistant = NewAssistant(store);
+                var writesBefore = FakePublicApi.WriteAttempts;
                 try
                 {
                     // Earlier turns first, in one conversation; only the last answer is scored.
@@ -83,7 +89,8 @@ internal static class EvalRunner
                     error = ex;
                 }
 
-                runs.Add(Scoring.Score(c, result, error));
+                var proposals = await store.ListAsync("merchant-1", null, CancellationToken.None);
+                runs.Add(Scoring.Score(c, result, error, proposals, FakePublicApi.WriteAttempts - writesBefore));
             }
 
             var caseRuns = new CaseRuns(c, runs);
@@ -129,7 +136,8 @@ internal static class EvalRunner
                            $"{results.Count(r => r.Verdict == "FAIL")} stable fail");
         summary.AppendLine($"Right tool: {Rate(allRuns.Count(r => r.ToolsOk), allRuns.Count)}   " +
                            $"Right arguments: {Rate(allRuns.Count(r => r.ArgsOk), allRuns.Count)}   " +
-                           $"Right answer: {Rate(allRuns.Count(r => r.AnswerOk), allRuns.Count)}");
+                           $"Right answer: {Rate(allRuns.Count(r => r.AnswerOk), allRuns.Count)}   " +
+                           $"Right actions: {Rate(allRuns.Count(r => r.ActionsOk), allRuns.Count)}");
         summary.AppendLine($"Time: P50 {Percentile(0.5)} ms, P95 {Percentile(0.95)} ms   " +
                            $"Tokens per question: {inputTokens:0} in, {outputTokens:0} out");
         summary.AppendLine("By type:");
