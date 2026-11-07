@@ -1,11 +1,12 @@
 # Ops Assistant: an AI agent that can't act on its own
 
-The Ops Assistant answers a merchant's questions about their shipments, and can **prepare** one action: opening a
-claim with the carrier when a shipment is late, lost or damaged. It never opens the claim itself. A person approves,
-with their own token; the system makes sure the claim is opened exactly once, only if the data allows it, and records
-every step.
+The Ops Assistant answers a merchant's questions about their shipments and about the carriers' service terms, and can
+**prepare** one action: opening a claim with the carrier when a shipment is late, lost or damaged. It never opens the
+claim itself. A person approves, with their own token; the system makes sure the claim is opened exactly once, only if
+the data allows it, and records every step.
 
-.NET 10, Microsoft Agent Framework, Microsoft.Extensions.AI, Azure OpenAI (gpt-5.4-mini), PostgreSQL, Aspire.
+.NET 10, Microsoft Agent Framework, Microsoft.Extensions.AI, Azure OpenAI (gpt-5.4-mini), Azure AI Search, PostgreSQL,
+Aspire.
 
 ## How it works
 
@@ -13,6 +14,7 @@ every step.
 flowchart LR
     U[Merchant] -- question + read-only token --> A[Ops Assistant<br/>Agent Framework]
     A -- tools: read shipments,<br/>propose_open_claim --> P[Public API]
+    A -- search_carrier_policies --> S[(Azure AI Search<br/>carrier-policies)]
     A -- pending action +<br/>audit trail --> D[(assistantdb)]
     H[Person] -- approve with<br/>write token --> E[Approve endpoint<br/>not a tool]
     E -- POST /v1/claims<br/>+ Idempotency-Key --> P
@@ -35,6 +37,32 @@ ApprovalRefused   readonly-1    the token has no shipments:write scope
 Approved          merchant-1
 Executed          carrierhub    claim 01a1b2f0… opened
 ```
+
+## Carrier terms: retrieval as a tool
+
+The carriers' service terms (`docs/carriers/`: what FastShip, NordPost and ParcelGo pay for late, lost and damaged
+parcels, and by when) are indexed in Azure AI Search by `CarrierHub.PolicyIndexer`: one chunk per `##` section,
+embedded with its title, hybrid keyword and vector search, and a `carrier` field to filter on. The assistant searches
+them with the `search_carrier_policies` tool, so it decides itself when to search, and for which carrier.
+
+The questions merchants actually ask need both kinds of source. Asked "ORDER-20003 was late. Can I get compensation
+from the carrier?", the agent:
+
+```
+get_shipment_timeline("ORDER-20003")              → NordPost, delivered 54 seconds after the promise
+search_carrier_policies(carrier: "NordPost", …)   → "only more than 24 hours late"
+"…only 54 seconds late, so there's no compensation (NordPost: Late delivery compensation)"
+```
+
+Nobody named the carrier: the agent took it from the shipment's data and used it as the search filter.
+
+| Decision | Why |
+|---|---|
+| The carrier is checked against the known carriers, then passed through `SearchFilter.Create` | Whatever the model writes, it becomes `carrier eq 'NordPost'` or an error, never a different filter |
+| Top 3 sections, each labelled like `NordPost: Late delivery compensation` | When keyword and vector search disagree (a tie), the right section is still among them, and the answer can name its source |
+| Answers only from the returned sections, naming the section | The grounding rule from DocChat, applied to a tool |
+| No merchant token; a search query key (or the managed identity) | The terms are the same for every merchant; the key can search, never change the index |
+| The same tool in the MCP server | MCP clients get the carriers' terms too, when search is configured |
 
 ## What enforces what
 
@@ -106,6 +134,22 @@ about the one where delivery failed").
 
 P50 1.4 s, P95 2.1 s, about 2,500 input and 80 output tokens per question (about $2.50 per 1,000 questions).
 
+**Adding the carriers' terms** (42 cases × 3)
+
+| Run | Passed | Change |
+|---|---|---|
+| policy-v1 | 123/126 | the policy tool and two prompt rules |
+| | | two checks corrected: "I can't find…" and "I can't tell from FastShip's terms…" were right answers |
+| carrier-v2 | 30/30 (6 cases × 5) | the carrier parameter's description |
+| **policy-v2** | **126/126** | |
+
+P50 1.3 s, P95 2.6 s, about 3,400 input and 95 output tokens per question (about $3.30 per 1,000 questions).
+
+The policy cases are built so that the wrong carrier's rule gives a visibly wrong answer: ORDER-1004 is a NordPost
+parcel exactly 2 hours late, where FastShip would pay 50% and NordPost pays nothing before 24 hours. Others check a
+voucher instead of a refund, a failed attempt that doesn't make a parcel late, a question about what a claim needs
+(answered, and nothing prepared), a question the terms don't answer, and a carrier CarrierHub doesn't have.
+
 The action cases:
 
 | Case | Checks |
@@ -132,7 +176,14 @@ All 25 earlier cases also check that nothing is proposed unless the user asks.
   approve it") fixed it.
 - **The safety checks passed from the first run:** 0 write attempts in 105, and the injection aimed at actions was
   ignored every time.
-- **Every rule costs tokens on every question.** The new tool and rules added about 100 input tokens to each question,
+- **An option offered as equal gets taken.** The carrier parameter said "leave it out to search all three", and in 1 of
+  3 runs the model did, for a shipment whose carrier it had just looked up. The answer was right by luck: the right
+  section ranked first. Making the carrier the default "when the question is about a shipment" fixed it: 5 of 5. The
+  same lesson as the note: the model follows the wording of a tool's description closely.
+- **Fix the checks before the system.** Two of the three policy-v1 failures were right answers ("I can't find…",
+  "I can't tell from FastShip's terms…") that the checks didn't accept.
+- **Every rule and every tool costs tokens on every question.** The action tool and its rules added about 100 input
+  tokens to each question; the policy tool and the sections it returns raised the average from about 2,500 to 3,400,
   including "how many shipments do I have?".
 
 ## Endpoints
@@ -150,6 +201,14 @@ And in the Public API: `POST /v1/claims` (write scope, `Idempotency-Key` header 
 
 ## Run it
 
+Build the carriers' terms index once, and again whenever `docs/carriers/` changes (it needs
+`Assistant:Search:Endpoint`, `Assistant:Search:AdminKey` and the Azure OpenAI settings in the Ops Assistant's user
+secrets; the assistant itself uses `Assistant:Search:QueryKey`):
+
+```
+dotnet run --project src/CarrierHub.PolicyIndexer
+```
+
 Start the AppHost; the Ops Assistant applies its migrations to `assistantdb` at startup in Development. The requests
 are in `src/CarrierHub.OpsAssistant/CarrierHub.OpsAssistant.http` and `src/CarrierHub.PublicApi/claims.http`.
 
@@ -158,7 +217,8 @@ dotnet run --project tests/CarrierHub.OpsAssistant.Evals -- --provider AzureOpen
 ```
 
 The evaluations need no AppHost and no database: the Public API is the fake one in `World.cs`, and pending actions are
-kept in memory. A full run costs about 25 cents.
+kept in memory. The carriers' terms come from the real index, because retrieval is part of what is measured. A full
+run costs about 40 cents.
 
 ## Known gaps
 
@@ -169,3 +229,7 @@ kept in memory. A full run costs about 25 cents.
 - **One kind of action.** Adding another means a new tool, a new executor call and new eval cases; the store, the
   endpoints and the audit trail stay the same.
 - **Old actions are never deleted.**
+- **Policy citations are checked only by the evaluations.** DocChat checks in code which sources an answer cited; here
+  the section names are asked for in the prompt and measured, not verified per answer.
+- **The policy index is rebuilt from scratch** on every run of the indexer, and the list of carriers the tool accepts
+  is in code.

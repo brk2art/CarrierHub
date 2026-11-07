@@ -2,10 +2,11 @@
 
 A shipment-tracking integration platform in .NET 10: it takes events from carriers with different,
 unreliable APIs, turns them into one correct timeline per shipment, and serves it to merchants through
-a secure public API and signed webhooks. An AI ops assistant answers merchants' questions through the same
-API, with the caller's permissions, and can prepare a claim with the carrier that only a person can approve.
+a secure public API and signed webhooks. An AI ops assistant answers merchants' questions about their shipments
+and the carriers' terms, through the same API and with the caller's permissions, and can prepare a claim with the
+carrier that only a person can approve.
 
-**Status:** Phase 5 of 7 in progress (AI assistant). [Roadmap](#roadmap)
+**Status:** Phase 5 of 7 done (AI assistant). [Roadmap](#roadmap)
 
 ## Architecture today
 
@@ -27,6 +28,7 @@ flowchart LR
     M -- "question + own token" --> A[Ops Assistant<br/>Agent Framework, Azure OpenAI]
     A -- "tools, caller's token" --> P
     A --> ADB[(assistantdb<br/>pending actions, audit)]
+    A -- "search" --> S[(Azure AI Search<br/>carrier terms)]
     H[Person approving] -- "write token" --> A
 ```
 
@@ -46,9 +48,14 @@ errors, latency, duplicates, shuffled order and rate limits.
   unique indexes turn every retry, double click or resumed approval into the same single claim. A call with no
   answer leaves the action "approved, not executed", visible and safe to approve again.
 - **Every step in an audit trail**, saved in the same transaction as the change, in PostgreSQL (`assistantdb`).
-- **Measured, not assumed**: 35 evaluation scenarios, each run 3 times, including prompt injection in carrier data
-  and an injection aimed at actions. The evaluations found the model inventing statements in claim notes
-  ("Customer says…"); fixed and measured.
+- **RAG over the carriers' terms, as a tool.** FastShip's, NordPost's and ParcelGo's service terms (`docs/carriers/`)
+  are indexed in Azure AI Search with a carrier field; `search_carrier_policies` runs a hybrid search limited to one
+  carrier. Asked whether a late parcel is compensated, the agent looks up the shipment, takes the carrier from its
+  data, searches that carrier's terms and names the section it used.
+- **Measured, not assumed**: 42 evaluation scenarios, each run 3 times, including prompt injection in carrier data,
+  an injection aimed at actions, and policy questions where the wrong carrier's rule gives a visibly wrong answer.
+  The evaluations found the model inventing statements in claim notes ("Customer says…") and sometimes searching
+  every carrier's terms when it knew the carrier; both fixed and measured.
 - **The same tools as an MCP server** (`CarrierHub.McpServer`, stdio), usable from MCP clients such as Claude Code,
   with the merchant's token.
 - **Claims in the Public API**: `POST /v1/claims` with a required `Idempotency-Key` header and the write scope,
@@ -120,6 +127,7 @@ errors, latency, duplicates, shuffled order and rate limits.
 | Choosing the model (22 questions × 3) | qwen2.5:7b on a 4 GB laptop GPU: 63/66, with timeouts, 8–22 s. gpt-5.4-mini on Azure OpenAI: **66/66**, P50 1.6 s, about $0.002 per question. The tool descriptions carried over unchanged. |
 | Agent Framework with conversations (25 × 3) | **75/75**, including follow-up questions that refer to an earlier answer. |
 | Actions (35 × 3) | First run **98/105**: every safety check passed (0 write attempts, the injection aimed at actions ignored every time), but the model invented statements in claim notes in 5 of 12 runs. One tool description and one prompt rule later: **105/105**, P50 1.4 s, about $2.50 per 1,000 questions. |
+| Carrier terms (42 × 3) | First run **123/126**: two failures were right answers the checks didn't accept, one was real (it searched every carrier's terms for a shipment whose carrier it knew). One tool description later: **126/126**, P50 1.3 s, about $3.30 per 1,000 questions. |
 | Crash during an approval | Tracking stopped mid-approval, the assistant restarted while the action was "approved, not executed". Approving again opened **exactly one** claim; the audit trail shows every step, including the call that got no answer. |
 
 Lesson: a manual test showed the invented note once; repeated runs showed it was the model's usual behaviour,
@@ -167,7 +175,7 @@ a metric per HTTP try (Phase 4).
 | Public API | 10 | Merchant from token, scopes, no internal fields, 502 on failure, rate limit per merchant, webhook endpoints |
 | Carrier contracts | 18 | Real payloads per carrier; summer, winter and both clock-change hours; signatures, tampering and replays |
 | Notification | 5 | Signed merchant webhooks, delivery log, one success per message |
-| Ops Assistant evaluations | 35 scenarios × 3 | Right tool, arguments, answer and actions: lookups, counts, isolation, prompt injection, conversations, claims prepared, refused and never approved by the model |
+| Ops Assistant evaluations | 42 scenarios × 3 | Right tool, arguments, answer and actions: lookups, counts, isolation, prompt injection, conversations, claims prepared, refused and never approved by the model, carriers' terms combined with shipment data |
 
 ```
 dotnet test
@@ -193,6 +201,17 @@ same user secrets). Without them, set `Assistant__Provider` to `Ollama` in the A
 dotnet user-secrets set "Assistant:AzureOpenAI:Endpoint" "https://<resource>.openai.azure.com/" --project src/CarrierHub.OpsAssistant
 dotnet user-secrets set "Assistant:AzureOpenAI:ApiKey" "<key>" --project src/CarrierHub.OpsAssistant
 ```
+
+For the carriers' terms, set an Azure AI Search service (the Free tier is enough) and build the index once:
+
+```
+dotnet user-secrets set "Assistant:Search:Endpoint" "https://<service>.search.windows.net" --project src/CarrierHub.OpsAssistant
+dotnet user-secrets set "Assistant:Search:AdminKey" "<admin key>" --project src/CarrierHub.OpsAssistant
+dotnet user-secrets set "Assistant:Search:QueryKey" "<query key>" --project src/CarrierHub.OpsAssistant
+dotnet run --project src/CarrierHub.PolicyIndexer
+```
+
+Without search settings, the assistant runs without the policy tool.
 
 Then:
 
@@ -222,14 +241,15 @@ dotnet user-jwts create --claim merchant_id=merchant-1 --scope shipments:read
 
 ### Assistant evaluations
 
-They need no AppHost and no database: the Public API is a fake one with fixed data (`World.cs`).
+They need no AppHost and no database: the Public API is a fake one with fixed data (`World.cs`). The carriers' terms
+come from the real index, because retrieval is part of what is measured.
 
 ```
 dotnet run --project tests/CarrierHub.OpsAssistant.Evals -- --provider AzureOpenAI --repeat 3 --label my-run
 ```
 
 Options: `--case act-1,act-2`, `--model`, `--reasoning low|medium|high`, `--min 0.95` (exit code 1 below it). A full
-run costs about 25 cents; a report with every failing answer goes to `eval-results/`.
+run costs about 40 cents; a report with every failing answer goes to `eval-results/`.
 
 ### Load tests
 
@@ -272,7 +292,7 @@ from the proposal, "no answer" as a state of its own): [docs/ops-assistant.md](d
 | 2. Carrier integration | Mock carriers with fault injection, Carrier Gateway, resilience, signed webhooks | Done |
 | 3. Messaging | Azure Service Bus, transactional outbox, merchant webhooks | Done |
 | 4. Observability and load | One trace per carrier event, k6 load tests with real numbers | Done |
-| 5. AI assistant | Tool calling over the Public API, evaluations, MCP, actions with human approval | In progress: RAG over carrier SLAs next |
+| 5. AI assistant | Tool calling over the Public API, RAG over carrier terms, evaluations, MCP, actions with human approval | Done |
 | 6. Cloud delivery | Docker, Helm, Terraform, AKS, GitHub Actions | Planned |
 | 7. Publish | Demo video, final write-up | Planned |
 
@@ -281,9 +301,9 @@ instead of immediate redelivery, encrypted webhook secrets, and an SSRF guard on
 From Phase 4: queue depth per Service Bus entity, a sampling policy, warm-up before readiness, ordering the
 active-shipments query by creation, a shared polling schedule for several Gateway instances, and capacity
 numbers on Azure.
-From Phase 5: RAG over carrier SLAs, a page for approvals, conversations in a database (they are in memory for
-30 minutes), the claim-note rule in code (today it is an instruction, measured at 105/105), an MCP server over HTTP,
-and clean-up of old actions.
+From Phase 5: a page for approvals, conversations in a database (they are in memory for 30 minutes), the claim-note
+rule in code (today it is an instruction, measured in every run), policy citations checked in code, an MCP server over
+HTTP, and clean-up of old actions.
 
 ## Tech
 
@@ -291,4 +311,5 @@ and clean-up of old actions.
 (Azure.Messaging.ServiceBus, local emulator), Redis (StackExchange.Redis), Aspire, OpenTelemetry, Polly
 (Microsoft.Extensions.Http.Resilience), JWT bearer authentication, ASP.NET Core rate limiting,
 HMAC-SHA256 webhook signatures, xUnit, Testcontainers, k6. AI: Microsoft Agent Framework,
-Microsoft.Extensions.AI, Azure OpenAI (gpt-5.4-mini), Ollama, Model Context Protocol (C# SDK).
+Microsoft.Extensions.AI, Azure OpenAI (gpt-5.4-mini, text-embedding-3-small), Azure AI Search (hybrid search),
+Ollama, Model Context Protocol (C# SDK).

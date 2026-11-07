@@ -32,7 +32,8 @@ public sealed class PolicyTools(SearchClient search, IEmbeddingGenerator<string,
     public async Task<object> SearchCarrierPolicies(
         [Description("What to look up, in plain words, for example \"compensation for a parcel delivered 3 hours late\".")]
         string question,
-        [Description("FastShip, NordPost or ParcelGo. Leave it out to search all three.")]
+        [Description("FastShip, NordPost or ParcelGo. When the question is about a shipment, always give that " +
+                     "shipment's carrier, taken from its data. Leave it out only to compare all three carriers.")]
         string? carrier = null,
         CancellationToken ct = default)
     {
