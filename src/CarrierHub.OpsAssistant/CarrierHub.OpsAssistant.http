@@ -195,3 +195,24 @@ Authorization: Bearer {{merchant1}}
 ### D4. The real claims
 GET {{publicapi}}/v1/claims
 Authorization: Bearer {{readonly1}}
+
+### Policy 1: a plain policy question
+POST {{opsassistant}}/v1/assistant/ask
+Authorization: Bearer {{readonly1}}
+Content-Type: application/json
+
+{ "question": "What does NordPost pay for a late parcel?" }
+
+### Policy 2: data AND policy (ORDER-20003 was delivered 54 seconds late)
+POST {{opsassistant}}/v1/assistant/ask
+Authorization: Bearer {{readonly1}}
+Content-Type: application/json
+
+{ "question": "ORDER-20003 was late. Can I get compensation from the carrier?" }
+
+### Policy 3: a deadline
+POST {{opsassistant}}/v1/assistant/ask
+Authorization: Bearer {{readonly1}}
+Content-Type: application/json
+
+{ "question": "A ParcelGo parcel arrived broken three days ago. Can I still claim?" }

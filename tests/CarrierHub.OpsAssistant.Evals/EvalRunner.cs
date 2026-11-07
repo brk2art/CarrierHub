@@ -54,7 +54,9 @@ internal static class EvalRunner
         var clock = new FixedTime(World.Now);
 
         // A fresh action store for every run, so each run's proposals are checked on their own.
-        Assistant NewAssistant(IPendingActionStore store) => new(chat, api, clock, options, conversations, store);
+        // The real policy index: retrieval is part of what's measured. Null if search isn't configured.
+        var policies = Assistant.CreatePolicyTools(options);
+        Assistant NewAssistant(IPendingActionStore store) => new(chat, api, clock, options, conversations, store, policies);
 
         // The first call loads the model (Ollama) or opens the connection (Azure); it isn't part of any case's time.
         Console.WriteLine($"Model {options.ModelName} ({label}), {cases.Count} cases x {repeat}. Warming up...");

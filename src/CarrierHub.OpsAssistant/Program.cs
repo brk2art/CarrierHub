@@ -25,6 +25,10 @@ builder.Services.AddScoped<IPendingActionStore, PostgresPendingActionStore>();
 var options = builder.Configuration.GetSection("Assistant").Get<AssistantOptions>() ?? new AssistantOptions();
 builder.Services.AddSingleton(options);
 
+// The carriers' terms: one instance for every question (no token: the terms are the same for every merchant).
+if (Assistant.CreatePolicyTools(options) is { } policies)
+    builder.Services.AddSingleton(policies);
+
 // Prompts and answers go into traces in Development only.
 builder.Services.AddSingleton(Assistant.CreateChatClient(options, enableSensitiveData: builder.Environment.IsDevelopment()));
 builder.Services.AddMemoryCache();
