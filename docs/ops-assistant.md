@@ -186,6 +186,29 @@ All 25 earlier cases also check that nothing is proposed unless the user asks.
   tokens to each question; the policy tool and the sections it returns raised the average from about 2,500 to 3,400,
   including "how many shipments do I have?".
 
+## One agent or a team?
+
+The same assistant was also built as a handoff team on Agent Framework workflows (`TeamAssistant`): a triage agent
+with no tools hands each question to a specialist (shipments, policies, claims), each with only its own tools and a
+short prompt. Same tools, same token, same rules; the evaluations run either with `--architecture single|team`.
+
+| 42 cases × 3, Agent Framework 1.28 | Single agent | Team |
+|---|---|---|
+| Passed | 125/126 (the miss was a check that was too strict) | 124/126 (2 real failures) |
+| Time P50 / P95 | 1.48 s / 2.93 s | 1.73 s / 3.18 s |
+| Tokens per question | 3,360 in, 98 out | 2,880 in, 156 out |
+| Cost per 1,000 questions | about $3.27 | about $3.16 |
+
+- **Smaller prompts:** each specialist sees only its own 2 to 4 tools, so input tokens fell 14%. Handoff calls and a
+  sentence before each handoff raised output tokens 60%; the cost came out about equal.
+- **Slower:** every question takes at least two model calls, triage then a specialist.
+- **Context lost between agents:** a handoff passes messages, not tool results. Asked "tell me more about the one where
+  delivery failed", a specialist answered from the earlier summary instead of looking the shipment up, and missed
+  "customer not at home". Both real failures were questions that needed context from an earlier step.
+
+With six tools, one agent is as accurate, faster and no more expensive, so the service keeps it. A team would pay off
+with many more tools, a cheaper model for routing, or agents owned by different teams with different permissions.
+
 ## Endpoints
 
 | Endpoint | Token | What it does |

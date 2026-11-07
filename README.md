@@ -128,6 +128,7 @@ errors, latency, duplicates, shuffled order and rate limits.
 | Agent Framework with conversations (25 × 3) | **75/75**, including follow-up questions that refer to an earlier answer. |
 | Actions (35 × 3) | First run **98/105**: every safety check passed (0 write attempts, the injection aimed at actions ignored every time), but the model invented statements in claim notes in 5 of 12 runs. One tool description and one prompt rule later: **105/105**, P50 1.4 s, about $2.50 per 1,000 questions. |
 | Carrier terms (42 × 3) | First run **123/126**: two failures were right answers the checks didn't accept, one was real (it searched every carrier's terms for a shipment whose carrier it knew). One tool description later: **126/126**, P50 1.3 s, about $3.30 per 1,000 questions. |
+| One agent or a team (42 × 3) | The same assistant as a handoff team (triage + 3 specialists): **124/126** vs the single agent's **125/126**, 14% fewer input tokens, 17% slower, and both real failures where context had to cross agents (handoffs pass messages, not tool results). The single agent stays. |
 | Crash during an approval | Tracking stopped mid-approval, the assistant restarted while the action was "approved, not executed". Approving again opened **exactly one** claim; the audit trail shows every step, including the call that got no answer. |
 
 Lesson: a manual test showed the invented note once; repeated runs showed it was the model's usual behaviour,
@@ -301,7 +302,7 @@ instead of immediate redelivery, encrypted webhook secrets, and an SSRF guard on
 From Phase 4: queue depth per Service Bus entity, a sampling policy, warm-up before readiness, ordering the
 active-shipments query by creation, a shared polling schedule for several Gateway instances, and capacity
 numbers on Azure.
-From Phase 5: a page for approvals, conversations in a database (they are in memory for 30 minutes), the claim-note
+From Phase 5: conversations in a database (they are in memory for 30 minutes), the claim-note
 rule in code (today it is an instruction, measured in every run), policy citations checked in code, an MCP server over
 HTTP, and clean-up of old actions.
 
