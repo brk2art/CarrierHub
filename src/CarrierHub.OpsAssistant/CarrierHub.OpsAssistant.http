@@ -216,3 +216,17 @@ Authorization: Bearer {{readonly1}}
 Content-Type: application/json
 
 { "question": "A ParcelGo parcel arrived broken three days ago. Can I still claim?" }
+
+### Stream: a question that needs two tools
+POST {{opsassistant}}/v1/assistant/ask/stream
+Authorization: Bearer {{readonly1}}
+Content-Type: application/json
+
+{ "question": "ORDER-20003 was late. Can I get compensation from the carrier?" }
+
+### Stream: a bad token → 401 BEFORE any stream
+POST {{opsassistant}}/v1/assistant/ask/stream
+Authorization: Bearer not-a-real-token
+Content-Type: application/json
+
+{ "question": "How many shipments do I have?" }

@@ -8,6 +8,8 @@ using CarrierHub.AssistantTools;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using OllamaSharp;
+using System.Runtime.CompilerServices;
+using System.Text;
 
 namespace CarrierHub.OpsAssistant;
 
@@ -185,8 +187,16 @@ public sealed class Assistant(IChatClient chat, PublicApiClient api, TimeProvide
         return list;
     }
 
-    // conversationId null: a new conversation. Otherwise: continue it, if it exists for this caller.
-    public async Task<AssistantResult> AskAsync(string question, string token, string? conversationId, CancellationToken ct)
+    // One event of a streamed answer: "tool" (a tool was called), "text" (a piece of the answer), "done" (the full
+    // response) or "error". Kept free of HTTP types: the endpoint turns these into Server-Sent Events.
+    public sealed record AssistantEvent(string Type, object Data);
+
+    // What one question needs: its conversation, the caller's tools, the agent and the session.
+    private sealed record Turn(string ConversationId, ShipmentTools Tools, ActionTools Actions, ChatClientAgent Agent,
+        AgentSession Session);
+
+    // conversationId null: a new conversation. Otherwise: continue it, if it exists for this caller. Null = unknown.
+    private async Task<Turn?> StartTurnAsync(string token, string? conversationId, CancellationToken ct)
     {
         // The conversation first: the action tool records which conversation a proposal came from.
         JsonElement? saved = null;
@@ -195,7 +205,7 @@ public sealed class Assistant(IChatClient chat, PublicApiClient api, TimeProvide
         else if (conversations.Load(conversationId, token) is { } existing)
             saved = existing;
         else
-            return new(null, null, UnknownConversation: true);
+            return null;
 
         var tools = new ShipmentTools(api, token);
         var actions = new ActionTools(api, token, conversationId, pendingActions);
@@ -205,14 +215,20 @@ public sealed class Assistant(IChatClient chat, PublicApiClient api, TimeProvide
             ? await agent.DeserializeSessionAsync(json, cancellationToken: ct)
             : await agent.CreateSessionAsync(ct);
 
+        return new Turn(conversationId, tools, actions, agent, session);
+    }
+
+    // The whole answer at once.
+    public async Task<AssistantResult> AskAsync(string question, string token, string? conversationId, CancellationToken ct)
+    {
+        if (await StartTurnAsync(token, conversationId, ct) is not { } turn)
+            return new(null, null, UnknownConversation: true);
+
         var started = clock.GetTimestamp();
-        var response = await agent.RunAsync(question, session, cancellationToken: ct);
+        var response = await turn.Agent.RunAsync(question, turn.Session, cancellationToken: ct);
 
-        if ((tools.RejectedWith ?? actions.RejectedWith) is { } status)
+        if ((turn.Tools.RejectedWith ?? turn.Actions.RejectedWith) is { } status)
             return new(null, status);
-
-        // The whole conversation so far (questions, tool results, answers), for the next question.
-        conversations.Save(conversationId, token, await agent.SerializeSessionAsync(session, cancellationToken: ct));
 
         var toolCalls = response.Messages
             .SelectMany(m => m.Contents)
@@ -220,18 +236,74 @@ public sealed class Assistant(IChatClient chat, PublicApiClient api, TimeProvide
             .Select(c => new ToolCall(c.Name, c.Arguments))
             .ToList();
 
-        var proposed = actions.Proposed
+        return new(await FinishAsync(turn, token, response.Text, toolCalls,
+            response.Usage?.InputTokenCount, response.Usage?.OutputTokenCount, started, ct), null);
+    }
+
+    // The same answer, streamed: tool calls as they happen, the text as it is written, then the full response.
+    public async IAsyncEnumerable<AssistantEvent> AskStreamingAsync(string question, string token, string? conversationId,
+        [EnumeratorCancellation] CancellationToken ct)
+    {
+        if (await StartTurnAsync(token, conversationId, ct) is not { } turn)
+        {
+            yield return new("error", new { error = "Unknown or expired conversation." });
+            yield break;
+        }
+
+        var started = clock.GetTimestamp();
+        var text = new StringBuilder();
+        var toolCalls = new List<ToolCall>();
+        long? inputTokens = null, outputTokens = null;
+
+        await foreach (var update in turn.Agent.RunStreamingAsync(question, turn.Session, cancellationToken: ct))
+        {
+            foreach (var content in update.Contents)
+            {
+                switch (content)
+                {
+                    case FunctionCallContent call:
+                        toolCalls.Add(new ToolCall(call.Name, call.Arguments));
+                        yield return new("tool", new { name = call.Name, arguments = call.Arguments });
+                        break;
+
+                    case TextContent piece when !string.IsNullOrEmpty(piece.Text):
+                        text.Append(piece.Text);
+                        yield return new("text", new { text = piece.Text });
+                        break;
+
+                    // Each model call in the tool loop reports its own usage: add them up.
+                    case UsageContent usage:
+                        inputTokens = (inputTokens ?? 0) + (usage.Details.InputTokenCount ?? 0);
+                        outputTokens = (outputTokens ?? 0) + (usage.Details.OutputTokenCount ?? 0);
+                        break;
+                }
+            }
+        }
+
+        // The token was checked before the stream started; a refusal now means it lost access in between.
+        if ((turn.Tools.RejectedWith ?? turn.Actions.RejectedWith) is { } status)
+        {
+            yield return new("error", new { error = "The Public API refused this token.", status });
+            yield break;
+        }
+
+        yield return new("done", await FinishAsync(turn, token, text.ToString(), toolCalls, inputTokens, outputTokens,
+            started, ct));
+    }
+
+    // Saves the conversation and builds the response: the same for both ways of answering.
+    private async Task<AskResponse> FinishAsync(Turn turn, string token, string answer, List<ToolCall> toolCalls,
+        long? inputTokens, long? outputTokens, long started, CancellationToken ct)
+    {
+        // The whole conversation so far (questions, tool results, answers), for the next question.
+        conversations.Save(turn.ConversationId, token,
+            await turn.Agent.SerializeSessionAsync(turn.Session, cancellationToken: ct));
+
+        var proposed = turn.Actions.Proposed
             .Select(a => new ProposedAction(a.Id, a.Kind, a.Summary, a.ExpiresAt))
             .ToList();
 
-        return new(new AskResponse(
-            response.Text,
-            toolCalls,
-            options.ModelName,
-            response.Usage?.InputTokenCount,
-            response.Usage?.OutputTokenCount,
-            (int)clock.GetElapsedTime(started).TotalMilliseconds,
-            conversationId,
-            proposed), null);
+        return new AskResponse(answer, toolCalls, options.ModelName, inputTokens, outputTokens,
+            (int)clock.GetElapsedTime(started).TotalMilliseconds, turn.ConversationId, proposed);
     }
 }
