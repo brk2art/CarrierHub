@@ -44,11 +44,15 @@ if (app.Environment.IsDevelopment())
     await scope.ServiceProvider.GetRequiredService<AssistantDbContext>().Database.MigrateAsync();
 }
 
-app.MapGet("/", () => "CarrierHub Ops Assistant");
+// The chat page (src/CarrierHub.OpsAssistant.Web, built into wwwroot): index.html at /, then its files.
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
 app.MapAssistant();
 app.MapActions();
 app.MapDefaultEndpoints();
 
+app.MapFallbackToFile("index.html");
 app.Run();
 
 public partial class Program { }   // for tests
