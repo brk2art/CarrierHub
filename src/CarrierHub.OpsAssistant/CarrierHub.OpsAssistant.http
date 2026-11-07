@@ -1,4 +1,4 @@
-@actionId = 01a1b2ff-ea44-7115-a9c1-c22ab6f2c938
+@actionId = 01a1b5c5-4410-7dfe-8b92-7203349a040f
 @rejectId = 01a1b2ec-dca1-7d91-86d9-9e70394f5ef0
 
 ### 1. One shipment: expect get_shipment_timeline(reference = ORDER-20001)
@@ -174,5 +174,24 @@ POST {{opsassistant}}/v1/assistant/actions/{{actionId}}/approve
 Authorization: Bearer {{merchant1}}
 
 ### Check 5. The real claims: LOAD-862103-3-4800 Damaged appears ONCE
+GET {{publicapi}}/v1/claims
+Authorization: Bearer {{readonly1}}
+
+### D1. Prepare → copy pendingActions[0].id, then Ctrl+H: ACTION-ID → that id
+POST {{opsassistant}}/v1/assistant/ask
+Authorization: Bearer {{readonly1}}
+Content-Type: application/json
+
+{ "question": "LOAD-862093-3-4799 arrived damaged. Please open a damage claim." }
+
+### D2. Look at it
+GET {{opsassistant}}/v1/assistant/actions/{{actionId}}
+Authorization: Bearer {{readonly1}}
+
+### D3. Approve
+POST {{opsassistant}}/v1/assistant/actions/{{actionId}}/approve
+Authorization: Bearer {{merchant1}}
+
+### D4. The real claims
 GET {{publicapi}}/v1/claims
 Authorization: Bearer {{readonly1}}

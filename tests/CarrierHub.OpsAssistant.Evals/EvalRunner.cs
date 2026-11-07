@@ -52,7 +52,7 @@ internal static class EvalRunner
         var api = new PublicApiClient(new HttpClient(new FakePublicApi()) { BaseAddress = new Uri("https://publicapi.test") });
         var conversations = new ConversationStore(new MemoryCache(new MemoryCacheOptions()));
         var clock = new FixedTime(World.Now);
-        var assistant = new Assistant(chat, api, clock, options, conversations, new PendingActionStore(clock));
+        var assistant = new Assistant(chat, api, clock, options, conversations, new InMemoryPendingActionStore(clock));
 
         // The first call loads the model (Ollama) or opens the connection (Azure); it isn't part of any case's time.
         Console.WriteLine($"Model {options.ModelName} ({label}), {cases.Count} cases x {repeat}. Warming up...");

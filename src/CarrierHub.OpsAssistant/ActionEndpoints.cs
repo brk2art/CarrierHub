@@ -28,7 +28,7 @@ public static class ActionEndpoints
     private sealed record Caller(string Token, string MerchantId, string Actor, IReadOnlyList<string> Scopes);
 
     private static async Task<IResult> ListAsync(string? status, HttpRequest http, PublicApiClient api,
-        PendingActionStore store, CancellationToken ct)
+        IPendingActionStore store, CancellationToken ct)
     {
         var (caller, failure) = await IdentifyAsync(http, api, ct);
         if (caller is null)
@@ -42,45 +42,50 @@ public static class ActionEndpoints
             wanted = parsed;
         }
 
-        return Results.Ok(store.List(caller.MerchantId, wanted).Select(a => View(a, store)));
+        // One audit query per action, at most 50: fine for a person's list; a page for thousands would join instead.
+        var views = new List<ActionView>();
+        foreach (var action in await store.ListAsync(caller.MerchantId, wanted, ct))
+            views.Add(await ViewAsync(action, store, ct));
+
+        return Results.Ok(views);
     }
 
     private static async Task<IResult> GetAsync(Guid id, HttpRequest http, PublicApiClient api,
-        PendingActionStore store, CancellationToken ct)
+        IPendingActionStore store, CancellationToken ct)
     {
         var (caller, failure) = await IdentifyAsync(http, api, ct);
         if (caller is null)
             return failure!;
 
-        return store.Find(id, caller.MerchantId) is { } action
-            ? Results.Ok(View(action, store))
+        return await store.FindAsync(id, caller.MerchantId, ct) is { } action
+            ? Results.Ok(await ViewAsync(action, store, ct))
             : Results.NotFound(new { error = "Unknown action." });
     }
 
     private static async Task<IResult> ApproveAsync(Guid id, HttpRequest http, PublicApiClient api,
-        PendingActionStore store, ClaimExecutor executor, TimeProvider clock, CancellationToken ct)
+        IPendingActionStore store, ClaimExecutor executor, TimeProvider clock, CancellationToken ct)
     {
         var (caller, failure) = await IdentifyAsync(http, api, ct);
         if (caller is null)
             return failure!;
 
-        var action = store.Find(id, caller.MerchantId);
+        var action = await store.FindAsync(id, caller.MerchantId, ct);
         if (action is null)
             return Results.NotFound(new { error = "Unknown action." });
 
         switch (action.Status)
         {
             case ActionStatus.Executed:
-                return Results.Ok(View(action, store));   // approving again is harmless: the same result, nothing new
+                return Results.Ok(await ViewAsync(action, store, ct));   // approving again: the same result, nothing new
             case ActionStatus.Rejected:
-                return Refuse(action, store, "This action was rejected.");
+                return await RefuseAsync(action, store, "This action was rejected.", ct);
             case ActionStatus.Failed:
-                return Refuse(action, store, $"This action failed: {action.Error}");
+                return await RefuseAsync(action, store, $"This action failed: {action.Error}", ct);
         }
 
         if (!caller.Scopes.Contains(WriteScope))
         {
-            store.Record(action, "ApprovalRefused", caller.Actor, $"the token has no {WriteScope} scope");
+            await store.RecordAsync(action, "ApprovalRefused", caller.Actor, $"the token has no {WriteScope} scope", ct);
             return Results.Json(new { error = $"Approving needs a token with the {WriteScope} scope." },
                 statusCode: StatusCodes.Status403Forbidden);
         }
@@ -88,74 +93,77 @@ public static class ActionEndpoints
         var now = clock.GetUtcNow();
         if (action.Status == ActionStatus.Pending && now >= action.ExpiresAt)
         {
-            store.Record(action, "ApprovalRefused", caller.Actor, "expired");
-            return Refuse(action, store, "This action expired. Ask the assistant to prepare it again.");
+            await store.RecordAsync(action, "ApprovalRefused", caller.Actor, "expired", ct);
+            return await RefuseAsync(action, store, "This action expired. Ask the assistant to prepare it again.", ct);
         }
 
-        // 1. Record the approval BEFORE executing. If the process dies during the call below, the action is visibly
-        //    "Approved, not executed", and approving again finishes it with the same key.
-        var again = action.Status == ActionStatus.Approved;
-        var approved = store.TryChange(id, caller.MerchantId, [ActionStatus.Pending, ActionStatus.Approved],
-            a => a with { Status = ActionStatus.Approved, DecidedBy = a.DecidedBy ?? caller.Actor, DecidedAt = a.DecidedAt ?? now },
-            again ? "ApprovedAgain" : "Approved", caller.Actor);
-        if (approved is null)
-            return Current(id, caller, store, okIf: ActionStatus.Executed);   // someone decided a moment ago
+        // From the approval on, nothing uses the caller's cancellation: once a person has approved, a caller who hangs
+        // up (a closed tab, a client timeout) must not stop the write, or the record of what happened to it.
+        var done = CancellationToken.None;
 
-        // 2. Execute: the approver's token, the stored request, the stored key. Not the request's token: once a person
-        //    has approved, a caller who hangs up (a closed tab, a client timeout) must not cancel the write halfway.
-        //    The HttpClient's own timeouts (from ServiceDefaults) still bound how long this can take.
-        var outcome = await executor.OpenClaimAsync(approved, caller.Token, CancellationToken.None);
+        // 1. Record the approval BEFORE executing. If the process dies during the call below, the action is visibly
+        //    "Approved, not executed" in the database, and approving again finishes it with the same key.
+        var again = action.Status == ActionStatus.Approved;
+        var approved = await store.TryChangeAsync(id, caller.MerchantId, [ActionStatus.Pending, ActionStatus.Approved],
+            a => a with { Status = ActionStatus.Approved, DecidedBy = a.DecidedBy ?? caller.Actor, DecidedAt = a.DecidedAt ?? now },
+            again ? "ApprovedAgain" : "Approved", caller.Actor, null, done);
+        if (approved is null)
+            return await CurrentAsync(id, caller, store, okIf: ActionStatus.Executed, done);   // someone decided a moment ago
+
+        // 2. Execute: the approver's token, the stored request, the stored key.
+        var outcome = await executor.OpenClaimAsync(approved, caller.Token, done);
 
         switch (outcome.Kind)
         {
             case ExecutionKind.Opened:
-                var executed = store.TryChange(id, caller.MerchantId, [ActionStatus.Approved],
+                var executed = await store.TryChangeAsync(id, caller.MerchantId, [ActionStatus.Approved],
                     a => a with { Status = ActionStatus.Executed, ClaimId = outcome.ClaimId, Error = null },
                     "Executed", "carrierhub",
-                    outcome.Replayed ? $"claim {outcome.ClaimId} (already opened with this key)" : $"claim {outcome.ClaimId} opened");
+                    outcome.Replayed ? $"claim {outcome.ClaimId} (already opened with this key)" : $"claim {outcome.ClaimId} opened",
+                    done);
                 return executed is null
-                    ? Current(id, caller, store, okIf: ActionStatus.Executed)
-                    : Results.Ok(View(executed, store));
+                    ? await CurrentAsync(id, caller, store, okIf: ActionStatus.Executed, done)
+                    : Results.Ok(await ViewAsync(executed, store, done));
 
             case ExecutionKind.Refused:
-                var failed = store.TryChange(id, caller.MerchantId, [ActionStatus.Approved],
+                var failed = await store.TryChangeAsync(id, caller.MerchantId, [ActionStatus.Approved],
                     a => a with { Status = ActionStatus.Failed, Error = outcome.Error },
-                    "Failed", "carrierhub", outcome.Error);
+                    "Failed", "carrierhub", outcome.Error, done);
                 return failed is null
-                    ? Current(id, caller, store, okIf: ActionStatus.Executed)
-                    : Refuse(failed, store, $"CarrierHub refused the claim: {outcome.Error}");
+                    ? await CurrentAsync(id, caller, store, okIf: ActionStatus.Executed, done)
+                    : await RefuseAsync(failed, store, $"CarrierHub refused the claim: {outcome.Error}", done);
 
             case ExecutionKind.NotAllowed:
-                store.Record(approved, "ExecutionNotAllowed", caller.Actor, outcome.Error);
-                return Results.Json(new { error = outcome.Error, action = View(approved, store) },
+                await store.RecordAsync(approved, "ExecutionNotAllowed", caller.Actor, outcome.Error, done);
+                return Results.Json(new { error = outcome.Error, action = await ViewAsync(approved, store, done) },
                     statusCode: outcome.StatusCode ?? StatusCodes.Status403Forbidden);
 
             default:   // Unknown: the action stays Approved
-                store.Record(approved, "ExecutionUnknown", "carrierhub", outcome.Error);
+                await store.RecordAsync(approved, "ExecutionUnknown", "carrierhub", outcome.Error, done);
                 return Results.Json(new
                 {
                     error = "CarrierHub didn't confirm the claim. Approve again: the same idempotency key makes sure " +
                             "at most one claim is opened.",
-                    action = View(approved, store),
+                    action = await ViewAsync(approved, store, done),
                 }, statusCode: StatusCodes.Status502BadGateway);
         }
     }
 
     // Rejecting needs no write scope: saying no is always safe. Least privilege is about doing, not refusing.
     private static async Task<IResult> RejectAsync(Guid id, HttpRequest http, PublicApiClient api,
-        PendingActionStore store, TimeProvider clock, CancellationToken ct)
+        IPendingActionStore store, TimeProvider clock, CancellationToken ct)
     {
         var (caller, failure) = await IdentifyAsync(http, api, ct);
         if (caller is null)
             return failure!;
 
-        var rejected = store.TryChange(id, caller.MerchantId, [ActionStatus.Pending],
+        var rejected = await store.TryChangeAsync(id, caller.MerchantId, [ActionStatus.Pending],
             a => a with { Status = ActionStatus.Rejected, DecidedBy = caller.Actor, DecidedAt = clock.GetUtcNow() },
-            "Rejected", caller.Actor);
+            "Rejected", caller.Actor, null, ct);
 
         return rejected is not null
-            ? Results.Ok(View(rejected, store))
-            : Current(id, caller, store, okIf: ActionStatus.Rejected);
+            ? Results.Ok(await ViewAsync(rejected, store, ct))
+            : await CurrentAsync(id, caller, store, okIf: ActionStatus.Rejected, ct);
     }
 
     // Who is calling, as the Public API validated the token: never decoded here, never taken from the request body.
@@ -179,22 +187,24 @@ public static class ActionEndpoints
     }
 
     // The state after someone else's change: fine if it's the state this call wanted, a conflict otherwise.
-    private static IResult Current(Guid id, Caller caller, PendingActionStore store, ActionStatus okIf)
+    private static async Task<IResult> CurrentAsync(Guid id, Caller caller, IPendingActionStore store,
+        ActionStatus okIf, CancellationToken ct)
     {
-        var action = store.Find(id, caller.MerchantId);
+        var action = await store.FindAsync(id, caller.MerchantId, ct);
         if (action is null)
             return Results.NotFound(new { error = "Unknown action." });
 
         return action.Status == okIf
-            ? Results.Ok(View(action, store))
-            : Refuse(action, store, $"The action is already {action.Status}.");
+            ? Results.Ok(await ViewAsync(action, store, ct))
+            : await RefuseAsync(action, store, $"The action is already {action.Status}.", ct);
     }
 
-    private static IResult Refuse(PendingAction action, PendingActionStore store, string error) =>
-        Results.Conflict(new { error, action = View(action, store) });
+    private static async Task<IResult> RefuseAsync(PendingAction action, IPendingActionStore store, string error,
+        CancellationToken ct) =>
+        Results.Conflict(new { error, action = await ViewAsync(action, store, ct) });
 
-    private static ActionView View(PendingAction a, PendingActionStore store) => new(
-        a.Id, a.Kind, a.Summary, a.Status.ToString(), a.ProposedAt, a.ExpiresAt, a.DecidedBy, a.DecidedAt,
-        a.ClaimId, a.Error,
-        store.AuditTrail(a.Id).Select(e => new AuditView(e.At, e.Event, e.Actor, e.Detail)).ToList());
+    private static async Task<ActionView> ViewAsync(PendingAction a, IPendingActionStore store, CancellationToken ct) =>
+        new(a.Id, a.Kind, a.Summary, a.Status.ToString(), a.ProposedAt, a.ExpiresAt, a.DecidedBy, a.DecidedAt,
+            a.ClaimId, a.Error,
+            (await store.AuditTrailAsync(a.Id, ct)).Select(e => new AuditView(e.At, e.Event, e.Actor, e.Detail)).ToList());
 }

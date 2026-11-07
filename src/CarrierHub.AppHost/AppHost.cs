@@ -4,6 +4,7 @@ var builder = DistributedApplication.CreateBuilder(args);
 var postgres = builder.AddPostgres("postgres").WithDataVolume();
 var trackingDb = postgres.AddDatabase("trackingdb");
 var notificationDb = postgres.AddDatabase("notificationdb");
+var assistantDb = postgres.AddDatabase("assistantdb");
 
 // Redis: the Gateway's memory of which events it already forwarded. No volume on purpose:
 // a restart starts empty, so every measurement run starts from the same point.
@@ -87,12 +88,13 @@ var gateway = builder.AddProject<Projects.CarrierHub_CarrierGateway>("gateway")
 // ParcelGo needs an address to push to: the Gateway's own https endpoint.
 gateway.WithEnvironment("ParcelGo__CallbackBaseUrl", gateway.GetEndpoint("https"));
 
-// The AI ops assistant. No data access of its own: its tools call the Public API with the caller's token.
-// Ollama runs natively on this machine (it uses the GPU there); the model is a setting, so the evaluations
-// can compare models by changing one line.
+// The AI ops assistant. Its shipment data comes only through the Public API, with the caller's token; its own
+// database holds what it prepared for approval and the audit trail, nothing else.
 builder.AddProject<Projects.CarrierHub_OpsAssistant>("opsassistant")
     .WithReference(publicApi)
     .WaitFor(publicApi)
+    .WithReference(assistantDb)
+    .WaitFor(assistantDb)
     .WithEnvironment("Assistant__Provider", "AzureOpenAI")            // or "Ollama" for the local model
     .WithEnvironment("Assistant__Ollama__Endpoint", "http://localhost:11434")
     .WithEnvironment("Assistant__Ollama__Model", "qwen2.5:7b");

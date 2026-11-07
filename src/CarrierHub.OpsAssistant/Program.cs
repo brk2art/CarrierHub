@@ -1,5 +1,7 @@
 using CarrierHub.AssistantTools;
 using CarrierHub.OpsAssistant;
+using CarrierHub.OpsAssistant.Data;
+using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -14,6 +16,10 @@ builder.Services.AddHttpClient<PublicApiClient>(c => c.BaseAddress = new Uri("ht
 // POST with the same Idempotency-Key, so they can't open a second claim.
 builder.Services.AddHttpClient<ClaimExecutor>(c => c.BaseAddress = new Uri("https+http://publicapi"));
 
+// What the assistant prepared for approval, and the audit trail: in PostgreSQL, so a restart loses nothing.
+builder.AddNpgsqlDbContext<AssistantDbContext>("assistantdb");   // connection string comes from Aspire
+builder.Services.AddScoped<IPendingActionStore, PostgresPendingActionStore>();
+
 // Which model answers: Assistant:Provider ("Ollama" or "AzureOpenAI") comes from the AppHost; the Azure endpoint
 // and key come from user secrets.
 var options = builder.Configuration.GetSection("Assistant").Get<AssistantOptions>() ?? new AssistantOptions();
@@ -23,10 +29,16 @@ builder.Services.AddSingleton(options);
 builder.Services.AddSingleton(Assistant.CreateChatClient(options, enableSensitiveData: builder.Environment.IsDevelopment()));
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<ConversationStore>();
-builder.Services.AddSingleton<PendingActionStore>();
 builder.Services.AddScoped<Assistant>();
 
 var app = builder.Build();
+
+if (app.Environment.IsDevelopment())
+{
+    // Development only: bring the database up to date at startup, as Tracking does.
+    using var scope = app.Services.CreateScope();
+    await scope.ServiceProvider.GetRequiredService<AssistantDbContext>().Database.MigrateAsync();
+}
 
 app.MapGet("/", () => "CarrierHub Ops Assistant");
 app.MapAssistant();

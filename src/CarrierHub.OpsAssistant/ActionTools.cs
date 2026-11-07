@@ -6,7 +6,7 @@ namespace CarrierHub.OpsAssistant;
 // The assistant's only action tool, and it never writes: it checks the request against the merchant's own data and
 // records a proposal. The claim is opened only after a person approves it (Step 3c), with that person's write token.
 // One instance per question, like ShipmentTools, because it carries the caller's token.
-public sealed class ActionTools(PublicApiClient api, string token, string conversationId, PendingActionStore store)
+public sealed class ActionTools(PublicApiClient api, string token, string conversationId, IPendingActionStore store)
 {
     private static readonly string[] Reasons = ["Late", "Lost", "Damaged"];
     private const int MaxNoteLength = 500;
@@ -82,8 +82,8 @@ public sealed class ActionTools(PublicApiClient api, string token, string conver
                          $"{existing.CreatedAt:yyyy-MM-dd HH:mm} UTC.");
 
         // 5. Record the proposal. Nothing is opened.
-        var action = store.ProposeClaim(merchantId, conversationId, shipment.Id, shipment.MerchantReference,
-            shipment.Carrier, canonical, note);
+        var action = await store.ProposeClaimAsync(merchantId, conversationId, shipment.Id, shipment.MerchantReference,
+            shipment.Carrier, canonical, note, ct);
         if (_proposed.All(a => a.Id != action.Id))
             _proposed.Add(action);
 

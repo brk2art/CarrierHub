@@ -44,7 +44,7 @@ public sealed record AssistantResult(AskResponse? Response, int? RejectedWith, b
 // Answers one question with the merchant's own token. The endpoint uses it, and the evaluations use it unchanged:
 // what is evaluated is what runs.
 public sealed class Assistant(IChatClient chat, PublicApiClient api, TimeProvider clock, AssistantOptions options,
-    ConversationStore conversations, PendingActionStore pendingActions)
+    ConversationStore conversations, IPendingActionStore pendingActions)
 {
     public const string TelemetrySource = "CarrierHub.OpsAssistant";
 
