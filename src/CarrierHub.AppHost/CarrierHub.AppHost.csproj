@@ -7,6 +7,7 @@
     <ProjectReference Include="..\CarrierHub.CarrierGateway\CarrierHub.CarrierGateway.csproj" />
     <ProjectReference Include="..\CarrierHub.Notification\CarrierHub.Notification.csproj" />
     <ProjectReference Include="..\CarrierHub.OpsAssistant\CarrierHub.OpsAssistant.csproj" />
+    <ProjectReference Include="..\CarrierHub.McpHttp\CarrierHub.McpHttp.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -99,4 +99,9 @@ builder.AddProject<Projects.CarrierHub_OpsAssistant>("opsassistant")
     .WithEnvironment("Assistant__Ollama__Endpoint", "http://localhost:11434")
     .WithEnvironment("Assistant__Ollama__Model", "qwen2.5:7b");
 
+// CarrierHub's tools as a remote MCP server (Streamable HTTP at /mcp).
+builder.AddProject<Projects.CarrierHub_McpHttp>("mcphttp")
+    .WithReference(publicApi)
+    .WaitFor(publicApi);
+
 builder.Build().Run();

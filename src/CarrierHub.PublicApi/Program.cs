@@ -8,9 +8,8 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 builder.Services.AddOpenApi();
 
-// Validates bearer tokens with the settings under "Authentication:Schemes:Bearer".
-// In development, dotnet user-jwts writes those settings and keeps the signing key in user secrets.
-builder.Services.AddAuthentication().AddJwtBearer();
+// Development tokens (dotnet user-jwts) and, when configured, Microsoft Entra ID tokens issued for this API.
+builder.AddCarrierHubAuthentication();
 
 builder.Services.AddAuthorizationBuilder()
     // Reading needs a merchant and either scope; writing needs a merchant and the write scope.
