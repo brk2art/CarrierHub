@@ -23,7 +23,8 @@ public sealed class PolicyTools(SearchClient search, IEmbeddingGenerator<string,
     public static readonly string[] Carriers = ["FastShip", "NordPost", "ParcelGo"];
 
     // Three, not one: when keyword and vector search disagree (a tie), the right section is still among them.
-    private const int Top = 3;
+    private const int Top = 3;            // searching all carriers: the best 3 sections
+    private const int TopOneCarrier = 10; // one carrier: its whole terms (each file has fewer than 10 sections)
 
     [Description("Searches the carriers' service terms: late delivery compensation, failed delivery attempts, lost " +
                  "and damaged parcels, claim deadlines and what is not compensated. Use it for any question about " +
@@ -37,6 +38,8 @@ public sealed class PolicyTools(SearchClient search, IEmbeddingGenerator<string,
         string? carrier = null,
         CancellationToken ct = default)
     {
+        var size = carrier is null ? Top : TopOneCarrier;
+
         if (string.IsNullOrWhiteSpace(question))
             return new { error = "A question is required." };
 
@@ -52,10 +55,10 @@ public sealed class PolicyTools(SearchClient search, IEmbeddingGenerator<string,
         var vector = (await embedder.GenerateAsync([question], cancellationToken: ct))[0].Vector;
         var options = new SearchOptions
         {
-            Size = Top,
+            Size = size,
             VectorSearch = new VectorSearchOptions
             {
-                Queries = { new VectorizedQuery(vector) { KNearestNeighborsCount = Top, Fields = { "contentVector" } } },
+                Queries = { new VectorizedQuery(vector) { KNearestNeighborsCount = size, Fields = { "contentVector" } } },
             },
         };
         if (known is not null)

@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/CarrierHub.AppHost/CarrierHub.AppHost.csproj" />
     <Project Path="src/CarrierHub.AssistantTools/CarrierHub.AssistantTools.csproj" />
+    <Project Path="src/CarrierHub.CalendarMcp/CarrierHub.CalendarMcp.csproj" />
     <Project Path="src/CarrierHub.CarrierGateway/CarrierHub.CarrierGateway.csproj" />
     <Project Path="src/CarrierHub.McpHttp/CarrierHub.McpHttp.csproj" />
     <Project Path="src/CarrierHub.McpServer/CarrierHub.McpServer.csproj" />

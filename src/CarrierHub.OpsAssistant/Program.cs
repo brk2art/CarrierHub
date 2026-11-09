@@ -33,6 +33,7 @@ if (Assistant.CreatePolicyTools(options) is { } policies)
 builder.Services.AddSingleton(Assistant.CreateChatClient(options, enableSensitiveData: builder.Environment.IsDevelopment()));
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<ConversationStore>();
+builder.Services.AddSingleton<McpToolSource>();
 builder.Services.AddScoped<Assistant>();
 
 var app = builder.Build();

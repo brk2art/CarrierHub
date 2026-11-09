@@ -8,6 +8,7 @@
     <ProjectReference Include="..\CarrierHub.Notification\CarrierHub.Notification.csproj" />
     <ProjectReference Include="..\CarrierHub.OpsAssistant\CarrierHub.OpsAssistant.csproj" />
     <ProjectReference Include="..\CarrierHub.McpHttp\CarrierHub.McpHttp.csproj" />
+    <ProjectReference Include="..\CarrierHub.CalendarMcp\CarrierHub.CalendarMcp.csproj" />
   </ItemGroup>
 
   <ItemGroup>

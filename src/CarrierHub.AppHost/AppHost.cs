@@ -88,6 +88,9 @@ var gateway = builder.AddProject<Projects.CarrierHub_CarrierGateway>("gateway")
 // ParcelGo needs an address to push to: the Gateway's own https endpoint.
 gateway.WithEnvironment("ParcelGo__CallbackBaseUrl", gateway.GetEndpoint("https"));
 
+// Another team's service, consumed over MCP by the Ops Assistant.
+var calendarMcp = builder.AddProject<Projects.CarrierHub_CalendarMcp>("calendarmcp");
+
 // The AI ops assistant. Its shipment data comes only through the Public API, with the caller's token; its own
 // database holds what it prepared for approval and the audit trail, nothing else.
 builder.AddProject<Projects.CarrierHub_OpsAssistant>("opsassistant")
@@ -95,6 +98,7 @@ builder.AddProject<Projects.CarrierHub_OpsAssistant>("opsassistant")
     .WaitFor(publicApi)
     .WithReference(assistantDb)
     .WaitFor(assistantDb)
+    .WithReference(calendarMcp)
     .WithEnvironment("Assistant__Provider", "AzureOpenAI")            // or "Ollama" for the local model
     .WithEnvironment("Assistant__Ollama__Endpoint", "http://localhost:11434")
     .WithEnvironment("Assistant__Ollama__Model", "qwen2.5:7b");
