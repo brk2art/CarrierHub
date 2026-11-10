@@ -1,4 +1,4 @@
-﻿#pragma warning disable OPENAI001 // reasoning effort is marked experimental in the OpenAI SDK
+﻿#pragma warning disable OPENAI001, MEAI001 // reasoning effort and chat reduction are marked experimental
 using System.Text.Json;
 using Azure;
 using Azure.AI.OpenAI;
@@ -105,6 +105,9 @@ public sealed class Assistant(IChatClient chat, PublicApiClient api, TimeProvide
                 say you can't check them at the moment, and give no lateness or compensation result that depends on them.
               """;
 
+    // How many questions and answers the model sees: 20 = the last 10 turns.
+    private const int HistoryMessages = 20;
+
     // The model, automatic tool calling around it, and a trace span with token metrics for every model call.
     // The service and the evaluations both build it here, so they can't drift apart.
     public static IChatClient CreateChatClient(AssistantOptions options, bool enableSensitiveData)
@@ -121,6 +124,11 @@ public sealed class Assistant(IChatClient chat, PublicApiClient api, TimeProvide
         }
 
         return builder
+            // Outermost, so it runs once per question, before the tool loop: the model gets the last 20 questions and
+            // answers, without old tool calls and results (their facts are already in the answers). The current
+            // question's tool calls are added inside the loop, after this, so they are never dropped. The saved
+            // session keeps everything; only what is sent shrinks.
+            .UseChatReducer(new MessageCountingChatReducer(HistoryMessages))
             .UseFunctionInvocation(configure: f =>
             {
                 f.MaximumIterationsPerRequest = 5;          // a model stuck calling tools stops here
