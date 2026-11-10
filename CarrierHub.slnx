@@ -1,4 +1,7 @@
 <Solution>
+  <Folder Name="/labs/">
+    <Project Path="labs/CarrierHub.ApprovalLab/CarrierHub.ApprovalLab.csproj" />
+  </Folder>
   <Folder Name="/src/">
     <Project Path="src/CarrierHub.AppHost/CarrierHub.AppHost.csproj" />
     <Project Path="src/CarrierHub.AssistantTools/CarrierHub.AssistantTools.csproj" />
