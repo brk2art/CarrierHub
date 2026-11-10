@@ -261,3 +261,42 @@ Authorization: Bearer {{merchant1}}
 ### Ground truth: ORDER-20002 itself
 GET {{publicapi}}/v1/shipments?reference=ORDER-20002
 Authorization: Bearer {{merchant1}}
+
+### Sweep 1: ParcelGo, promised in 30 s → ~1.5 min late → voucher due
+POST {{publicapi}}/v1/shipments
+Authorization: Bearer {{merchant1}}
+Content-Type: application/json
+
+{ "merchantReference": "SWEEP-1", "carrier": "ParcelGo", "trackingNumber": "PG5000001", "promisedBy": "{{$datetime iso8601 30 s}}" }
+
+### Sweep 2: ParcelGo again → voucher due
+POST {{publicapi}}/v1/shipments
+Authorization: Bearer {{merchant1}}
+Content-Type: application/json
+
+{ "merchantReference": "SWEEP-2", "carrier": "ParcelGo", "trackingNumber": "PG5000002", "promisedBy": "{{$datetime iso8601 30 s}}" }
+
+### Sweep 3: FastShip → late, but under 2 h → NO compensation
+POST {{publicapi}}/v1/shipments
+Authorization: Bearer {{merchant1}}
+Content-Type: application/json
+
+{ "merchantReference": "SWEEP-3", "carrier": "FastShip", "trackingNumber": "FS5000003", "promisedBy": "{{$datetime iso8601 30 s}}" }
+
+### Sweep 4: NordPost → late, but under 24 h → NO compensation
+POST {{publicapi}}/v1/shipments
+Authorization: Bearer {{merchant1}}
+Content-Type: application/json
+
+{ "merchantReference": "SWEEP-4", "carrier": "NordPost", "trackingNumber": "NP5000004", "promisedBy": "{{$datetime iso8601 30 s}}" }
+
+### Sweep 5: FastShip, promised in 10 days → on time (the control)
+POST {{publicapi}}/v1/shipments
+Authorization: Bearer {{merchant1}}
+Content-Type: application/json
+
+{ "merchantReference": "SWEEP-5", "carrier": "FastShip", "trackingNumber": "FS5000005", "promisedBy": "{{$datetime iso8601 10 d}}" }
+
+### Sweep check: wait about 3 minutes, then send. Expect SWEEP-1 to SWEEP-4 as late, SWEEP-5 not.
+GET {{publicapi}}/v1/shipments?late=true
+Authorization: Bearer {{merchant1}}

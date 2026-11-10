@@ -244,3 +244,9 @@ Authorization: Bearer {{readonly1}}
 Content-Type: application/json
 
 { "question": "A NordPost parcel was booked on 12 May 2026, promised for 13 May at 17:00 and delivered on 17 May at 10:00." }
+
+### Sweep: run it now (no Authorization header: the sweep uses its own token)
+POST {{opsassistant}}/v1/assistant/sweeps
+
+### Sweep: run it AGAIN: the same claims must not be proposed twice
+POST {{opsassistant}}/v1/assistant/sweeps

@@ -333,7 +333,7 @@ public sealed class Assistant(IChatClient chat, PublicApiClient api, TimeProvide
         if (tools.RejectedWith is { } status)
             return new(null, status);
 
-        return new(LatenessVerdict.From(response.Result), null);
+        return new(LatenessVerdict.From(response.Result), null, response.Usage?.InputTokenCount);
     }
 
     // Saves the conversation and builds the response: the same for both ways of answering.

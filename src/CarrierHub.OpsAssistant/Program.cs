@@ -36,6 +36,11 @@ builder.Services.AddScoped<IConversationStore, PostgresConversationStore>();
 builder.Services.AddSingleton<McpToolSource>();
 builder.Services.AddScoped<Assistant>();
 
+var sweep = builder.Configuration.GetSection("Assistant:Sweep").Get<SweepOptions>() ?? new();
+builder.Services.AddSingleton(sweep);
+builder.Services.AddSingleton<SweepRunner>();
+builder.Services.AddHostedService<SweepService>();
+
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
@@ -50,6 +55,10 @@ app.UseDefaultFiles();
 app.UseStaticFiles();
 
 app.MapAssistant();
+
+if (app.Environment.IsDevelopment())
+    app.MapSweeps();
+
 app.MapActions();
 app.MapDefaultEndpoints();
 

@@ -41,14 +41,27 @@ public sealed record LatenessVerdict(LatenessFacts Facts, double? HoursLate, boo
 {
     public static LatenessVerdict From(LatenessFacts f)
     {
-        if (f.MovedPromiseAt is not { } promise || f.DeliveredAt is not { } delivered)
+        if (f.DeliveredAt is not { } delivered)
             return new(f, null, null, null);
 
-        var hours = Math.Round((delivered - promise).TotalHours, 1);
-        bool? due = f.CompensationAfterHours is { } after ? hours > after : null;
-        return new(f, hours, hours > 0, due);
+        if (f.MovedPromiseAt is { } promise)
+        {
+            // Compare the exact value; round only what is shown. 90 seconds late is late.
+            var exact = (delivered - promise).TotalHours;
+            bool? due = f.CompensationAfterHours is { } after ? exact > after : null;
+            return new(f, Math.Round(exact, 2), exact > 0, due);
+        }
+
+        // The moved promise is unknown (for example, no booking date). A rule can only move a promise LATER, so the
+        // original promise gives the most this parcel can be late. If even that isn't enough, compensation is
+        // certainly not due. Otherwise nobody knows yet, and the verdict stays null: unknown is not "no".
+        if (f.PromisedAt is { } original && f.CompensationAfterHours is { } limit &&
+            (delivered - original).TotalHours <= limit)
+            return new(f, null, null, false);
+
+        return new(f, null, null, null);
     }
 }
 
 // One lateness check's outcome: the verdict, or the status the Public API refused the caller with.
-public sealed record LatenessResult(LatenessVerdict? Verdict, int? RejectedWith);
+public sealed record LatenessResult(LatenessVerdict? Verdict, int? RejectedWith, long? InputTokens = null);
