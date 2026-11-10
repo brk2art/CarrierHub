@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/labs/">
     <Project Path="labs/CarrierHub.ApprovalLab/CarrierHub.ApprovalLab.csproj" />
+    <Project Path="labs/CarrierHub.CheckpointLab/CarrierHub.CheckpointLab.csproj" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/CarrierHub.AppHost/CarrierHub.AppHost.csproj" />
