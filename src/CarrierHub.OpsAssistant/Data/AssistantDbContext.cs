@@ -11,6 +11,7 @@ public sealed class AssistantDbContext(DbContextOptions<AssistantDbContext> opti
 {
     public DbSet<PendingAction> PendingActions => Set<PendingAction>();
     public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
+    public DbSet<ConversationRow> Conversations => Set<ConversationRow>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -50,6 +51,16 @@ public sealed class AssistantDbContext(DbContextOptions<AssistantDbContext> opti
         audit.Property(e => e.Actor).HasMaxLength(200);
         audit.Property(e => e.Detail).HasMaxLength(1000);
         audit.HasIndex(e => e.ActionId);
+
+        var conversation = modelBuilder.Entity<ConversationRow>();
+        conversation.ToTable("Conversations");
+        conversation.HasKey(c => c.Id);
+        conversation.Property(c => c.Id).HasMaxLength(32);   // IConversationStore.NewId(): a Guid without dashes
+        conversation.Property(c => c.OwnerHash).HasMaxLength(32);   // SHA-256 of the token
+        // json, not jsonb: json keeps the text exactly as written. jsonb reorders the keys, and .NET's
+        // polymorphic JSON (the "$type" in each message part) can depend on that order.
+        conversation.Property(c => c.Session).HasColumnType("json");
+        conversation.HasIndex(c => c.UpdatedAt);   // for removing old conversations later
     }
 }
 

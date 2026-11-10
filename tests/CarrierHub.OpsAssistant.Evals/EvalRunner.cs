@@ -51,7 +51,7 @@ internal static class EvalRunner
 
         var chat = Assistant.CreateChatClient(options, enableSensitiveData: false);
         var api = new PublicApiClient(new HttpClient(new FakePublicApi()) { BaseAddress = new Uri("https://publicapi.test") });
-        var conversations = new ConversationStore(new MemoryCache(new MemoryCacheOptions()));
+        var conversations = new InMemoryConversationStore(new MemoryCache(new MemoryCacheOptions()));
         var clock = new FixedTime(World.Now);
 
         // A fresh action store for every run, so each run's proposals are checked on their own.

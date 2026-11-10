@@ -56,7 +56,7 @@ public sealed record AssistantResult(AskResponse? Response, int? RejectedWith, b
 // Answers one question with the merchant's own token. The endpoint uses it, and the evaluations use it unchanged:
 // what is evaluated is what runs.
 public sealed class Assistant(IChatClient chat, PublicApiClient api, TimeProvider clock, AssistantOptions options,
-    ConversationStore conversations, IPendingActionStore pendingActions, PolicyTools? policies = null,
+    IConversationStore conversations, IPendingActionStore pendingActions, PolicyTools? policies = null,
     McpToolSource? externalTools = null) : IAssistant
 {
     public const string TelemetrySource = "CarrierHub.OpsAssistant";
@@ -217,8 +217,8 @@ public sealed class Assistant(IChatClient chat, PublicApiClient api, TimeProvide
         // The conversation first: the action tool records which conversation a proposal came from.
         JsonElement? saved = null;
         if (conversationId is null)
-            conversationId = ConversationStore.NewId();
-        else if (conversations.Load(conversationId, token) is { } existing)
+            conversationId = IConversationStore.NewId();
+        else if (await conversations.LoadAsync(conversationId, token, ct) is { } existing)
             saved = existing;
         else
             return null;
@@ -313,8 +313,8 @@ public sealed class Assistant(IChatClient chat, PublicApiClient api, TimeProvide
         long? inputTokens, long? outputTokens, long started, CancellationToken ct)
     {
         // The whole conversation so far (questions, tool results, answers), for the next question.
-        conversations.Save(turn.ConversationId, token,
-            await turn.Agent.SerializeSessionAsync(turn.Session, cancellationToken: ct));
+        await conversations.SaveAsync(turn.ConversationId, token,
+            await turn.Agent.SerializeSessionAsync(turn.Session, cancellationToken: ct), ct);
 
         var proposed = turn.Actions.Proposed
             .Select(a => new ProposedAction(a.Id, a.Kind, a.Summary, a.ExpiresAt))

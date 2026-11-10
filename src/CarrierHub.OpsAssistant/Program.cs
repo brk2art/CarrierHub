@@ -32,7 +32,7 @@ if (Assistant.CreatePolicyTools(options) is { } policies)
 // Prompts and answers go into traces in Development only.
 builder.Services.AddSingleton(Assistant.CreateChatClient(options, enableSensitiveData: builder.Environment.IsDevelopment()));
 builder.Services.AddMemoryCache();
-builder.Services.AddSingleton<ConversationStore>();
+builder.Services.AddScoped<IConversationStore, PostgresConversationStore>(); 
 builder.Services.AddSingleton<McpToolSource>();
 builder.Services.AddScoped<Assistant>();
 

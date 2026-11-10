@@ -29,7 +29,7 @@ public static class AssistantEndpoints
     // Server-Sent Events: tool calls as they happen, the answer as it is written, then the full response.
     // Everything that can fail is checked BEFORE the first byte: once the stream starts, the status is already 200.
     private static async Task<IResult> AskStreamAsync(AskRequest request, HttpRequest http, Assistant assistant,
-        PublicApiClient api, ConversationStore conversations, CancellationToken ct)
+        PublicApiClient api, IConversationStore conversations, CancellationToken ct)
     {
         if (Invalid(request) is { } invalid)
             return invalid;
@@ -43,7 +43,7 @@ public static class AssistantEndpoints
         if (me.StatusCode != 200)
             return Results.Problem("Could not check the token. Try again shortly.", statusCode: StatusCodes.Status502BadGateway);
 
-        if (request.ConversationId is { } id && conversations.Load(id, token) is null)
+        if (request.ConversationId is { } id && await conversations.LoadAsync(id, token, ct) is null)
             return UnknownConversation();
 
         return TypedResults.ServerSentEvents(Events(assistant.AskStreamingAsync(request.Question, token,

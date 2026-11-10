@@ -10,7 +10,7 @@ namespace CarrierHub.OpsAssistant;
 // each with only its own tools and a short prompt. Same tools, same token, same rules as the single agent: the
 // evaluations compare the two with one flag.
 public sealed class TeamAssistant(IChatClient chat, PublicApiClient api, TimeProvider clock, AssistantOptions options,
-    ConversationStore conversations, IPendingActionStore pendingActions, PolicyTools? policies = null) : IAssistant
+    IConversationStore conversations, IPendingActionStore pendingActions, PolicyTools? policies = null) : IAssistant
 {
     private static readonly JsonSerializerOptions Json = AIJsonUtilities.DefaultOptions;
 
@@ -77,10 +77,10 @@ public sealed class TeamAssistant(IChatClient chat, PublicApiClient api, TimePro
         List<ChatMessage> history;
         if (conversationId is null)
         {
-            conversationId = ConversationStore.NewId();
+            conversationId = IConversationStore.NewId();
             history = [];
         }
-        else if (conversations.Load(conversationId, token) is { } saved)
+        else if (await conversations.LoadAsync(conversationId, token, ct) is { } saved)
         {
             history = saved.Deserialize<List<ChatMessage>>(Json) ?? [];
         }
@@ -137,7 +137,7 @@ public sealed class TeamAssistant(IChatClient chat, PublicApiClient api, TimePro
             return new(null, status);
 
         conversation ??= history;
-        conversations.Save(conversationId, token, JsonSerializer.SerializeToElement(conversation, Json));
+        await conversations.SaveAsync(conversationId, token, JsonSerializer.SerializeToElement(conversation, Json), ct);
 
         // What the agents said in this turn. A specialist may say a sentence before handing off; the user sees all of it.
         var answer = string.Join("\n\n", conversation.Skip(history.Count)
