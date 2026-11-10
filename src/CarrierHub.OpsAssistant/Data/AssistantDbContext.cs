@@ -12,6 +12,7 @@ public sealed class AssistantDbContext(DbContextOptions<AssistantDbContext> opti
     public DbSet<PendingAction> PendingActions => Set<PendingAction>();
     public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
     public DbSet<ConversationRow> Conversations => Set<ConversationRow>();
+    public DbSet<SweepDecision> SweepDecisions => Set<SweepDecision>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -61,6 +62,16 @@ public sealed class AssistantDbContext(DbContextOptions<AssistantDbContext> opti
         // polymorphic JSON (the "$type" in each message part) can depend on that order.
         conversation.Property(c => c.Session).HasColumnType("json");
         conversation.HasIndex(c => c.UpdatedAt);   // for removing old conversations later
+
+        var decision = modelBuilder.Entity<SweepDecision>();
+        decision.ToTable("SweepDecisions");
+        // One decision per shipment. The key is also the guard if two sweeps ever decide the same shipment at once.
+        decision.HasKey(d => new { d.MerchantId, d.ShipmentId });
+        decision.Property(d => d.MerchantId).HasMaxLength(64);
+        decision.Property(d => d.OrderNumber).HasMaxLength(100);
+        decision.Property(d => d.Outcome).HasMaxLength(32);
+        decision.Property(d => d.Detail).HasMaxLength(1000);
+        decision.HasIndex(d => new { d.MerchantId, d.Outcome });   // "which ones are Unclear?" for a person
     }
 }
 

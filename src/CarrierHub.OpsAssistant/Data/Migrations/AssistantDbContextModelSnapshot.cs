@@ -179,6 +179,46 @@ namespace CarrierHub.OpsAssistant.Data.Migrations
 
                     b.ToTable("PendingActions", (string)null);
                 });
+
+            modelBuilder.Entity("CarrierHub.OpsAssistant.SweepDecision", b =>
+                {
+                    b.Property<string>("MerchantId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("ShipmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ActionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("DecidedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Detail")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("OrderNumber")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<Guid>("SweepId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("MerchantId", "ShipmentId");
+
+                    b.HasIndex("MerchantId", "Outcome");
+
+                    b.ToTable("SweepDecisions", (string)null);
+                });
 #pragma warning restore 612, 618
         }
     }

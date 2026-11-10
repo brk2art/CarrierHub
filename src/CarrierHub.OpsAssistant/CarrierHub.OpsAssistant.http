@@ -250,3 +250,10 @@ POST {{opsassistant}}/v1/assistant/sweeps
 
 ### Sweep: run it AGAIN: the same claims must not be proposed twice
 POST {{opsassistant}}/v1/assistant/sweeps
+
+### Sweep 6: a new ParcelGo shipment after the first sweeps
+POST {{publicapi}}/v1/shipments
+Authorization: Bearer {{merchant1}}
+Content-Type: application/json
+
+{ "merchantReference": "SWEEP-6", "carrier": "ParcelGo", "trackingNumber": "PG5000006", "promisedBy": "{{$datetime iso8601 30 s}}" }
