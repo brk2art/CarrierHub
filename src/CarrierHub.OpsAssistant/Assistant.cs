@@ -176,7 +176,7 @@ public sealed class Assistant(IChatClient chat, PublicApiClient api, TimeProvide
 
     // The agent: its instructions, its tools and the chat client. Built per question, because the tools carry the
     // caller's own token; what may outlive one request is the session (the conversation), not the agent.
-    private ChatClientAgent CreateAgent(ShipmentTools tools, ActionTools actions, IReadOnlyList<AITool> external) => new(chat, new ChatClientAgentOptions
+    private ChatClientAgent CreateAgent(ShipmentTools tools, ActionTools? actions, IReadOnlyList<AITool> external) => new(chat, new ChatClientAgentOptions
     {
         Name = "CarrierHubOpsAssistant",
         ChatOptions = new ChatOptions
@@ -192,7 +192,7 @@ public sealed class Assistant(IChatClient chat, PublicApiClient api, TimeProvide
         UseProvidedChatClientAsIs = true
     });
 
-    private List<AITool> Tools(ShipmentTools tools, ActionTools actions, IReadOnlyList<AITool> external)
+    private List<AITool> Tools(ShipmentTools tools, ActionTools? actions, IReadOnlyList<AITool> external)
     {
         List<AITool> list =
         [
@@ -200,9 +200,11 @@ public sealed class Assistant(IChatClient chat, PublicApiClient api, TimeProvide
             AIFunctionFactory.Create(tools.FindShipments, "find_shipments"),
             AIFunctionFactory.Create(tools.FindShipmentsNeedingAttention, "find_shipments_needing_attention"),
             AIFunctionFactory.Create(tools.GetShipmentTimeline, "get_shipment_timeline"),
-            // Proposes only. There is no tool that opens a claim or approves one.
-            AIFunctionFactory.Create(actions.ProposeOpenClaim, "propose_open_claim"),
         ];
+
+        // Proposes only. There is no tool that opens a claim or approves one. Left out of read-only checks entirely.
+        if (actions is not null)
+            list.Add(AIFunctionFactory.Create(actions.ProposeOpenClaim, "propose_open_claim"));
 
         if (policies is not null)
             list.Add(AIFunctionFactory.Create(policies.SearchCarrierPolicies, "search_carrier_policies"));
@@ -314,6 +316,24 @@ public sealed class Assistant(IChatClient chat, PublicApiClient api, TimeProvide
 
         yield return new("done", await FinishAsync(turn, token, text.ToString(), toolCalls, inputTokens, outputTokens,
             started, ct));
+    }
+
+    // Structured output: the same agent and tools, but the answer is a LatenessFacts object (the model must follow
+    // its JSON schema) instead of text. Read-only: no claim tool, and no conversation, so nothing is saved.
+    public async Task<LatenessResult> CheckLatenessAsync(string question, string token, CancellationToken ct)
+    {
+        var tools = new ShipmentTools(api, token);
+        IReadOnlyList<AITool> external = externalTools is null ? [] : await externalTools.GetToolsAsync(ct);
+        var agent = CreateAgent(tools, actions: null, external);
+
+        var response = await agent.RunAsync<LatenessFacts>(
+            $"Check whether this parcel was late, and fill in every field you can from the tools. {question}",
+            cancellationToken: ct);
+
+        if (tools.RejectedWith is { } status)
+            return new(null, status);
+
+        return new(LatenessVerdict.From(response.Result), null);
     }
 
     // Saves the conversation and builds the response: the same for both ways of answering.

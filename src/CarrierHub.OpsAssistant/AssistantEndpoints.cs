@@ -9,6 +9,7 @@ public static class AssistantEndpoints
     {
         app.MapPost("/v1/assistant/ask", AskAsync);
         app.MapPost("/v1/assistant/ask/stream", AskStreamAsync);
+        app.MapPost("/v1/assistant/lateness", CheckLatenessAsync);
     }
 
     private static async Task<IResult> AskAsync(AskRequest request, HttpRequest http, Assistant assistant, CancellationToken ct)
@@ -48,6 +49,19 @@ public static class AssistantEndpoints
 
         return TypedResults.ServerSentEvents(Events(assistant.AskStreamingAsync(request.Question, token,
             request.ConversationId, ct)));
+    }
+
+    // Structured output: a typed verdict for code to use, not a sentence.
+    private static async Task<IResult> CheckLatenessAsync(AskRequest request, HttpRequest http, Assistant assistant,
+        CancellationToken ct)
+    {
+        if (Invalid(request) is { } invalid)
+            return invalid;
+        if (Token(http) is not { } token)
+            return Results.Unauthorized();
+
+        var result = await assistant.CheckLatenessAsync(request.Question, token, ct);
+        return result.RejectedWith is { } status ? Results.StatusCode(status) : Results.Ok(result.Verdict);
     }
 
     // Each event becomes "event: <type>" + "data: <json>".

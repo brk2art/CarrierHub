@@ -230,3 +230,17 @@ Authorization: Bearer not-a-real-token
 Content-Type: application/json
 
 { "question": "How many shipments do I have?" }
+
+### Lateness 1: Ascension Day moves the promise. On time.
+POST {{opsassistant}}/v1/assistant/lateness
+Authorization: Bearer {{readonly1}}
+Content-Type: application/json
+
+{ "question": "A NordPost parcel was booked on 12 May 2026, promised for 13 May at 17:00 and delivered on 15 May at 10:00." }
+
+### Lateness 2: same parcel, delivered two days later. Late, compensation due.
+POST {{opsassistant}}/v1/assistant/lateness
+Authorization: Bearer {{readonly1}}
+Content-Type: application/json
+
+{ "question": "A NordPost parcel was booked on 12 May 2026, promised for 13 May at 17:00 and delivered on 17 May at 10:00." }
