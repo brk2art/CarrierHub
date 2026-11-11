@@ -20,6 +20,7 @@ public sealed class AssistantOptions
     public OllamaOptions Ollama { get; set; } = new();
     public AzureOpenAIOptions AzureOpenAI { get; set; } = new();
     public PolicySearchOptions Search { get; set; } = new();
+    public PromptShieldOptions ContentSafety { get; set; } = new();
 
     public bool IsAzure => Provider.Equals("AzureOpenAI", StringComparison.OrdinalIgnoreCase);
 
@@ -83,7 +84,9 @@ public sealed class Assistant(IChatClient chat, PublicApiClient api, TimeProvide
           calendar tools for the dates: get_public_holidays to find the holidays, add_working_days to move a date
           by working days. Never count holidays or working days yourself. Then compare the delivery with the moved
           promise.
-        - Prepare a claim with propose_open_claim only when the user asks for a claim on a specific shipment.
+        - Prepare a claim with propose_open_claim only when the user asks you to open, file or prepare a claim on a
+          specific shipment. A question ABOUT claims is not a request: what a claim needs, whether one is possible,
+          what the carrier pays. Answer it from the terms and prepare nothing.
           Preparing opens nothing: a person approves it outside this chat. Never say a claim you prepared is opened,
           filed or submitted; say it is prepared and waits for approval. If the tool refuses, say why in one
           sentence. Its reasons are CarrierHub's rules: don't present them as the carrier's terms.
@@ -114,7 +117,7 @@ public sealed class Assistant(IChatClient chat, PublicApiClient api, TimeProvide
 
     // The model, automatic tool calling around it, and a trace span with token metrics for every model call.
     // The service and the evaluations both build it here, so they can't drift apart.
-    public static IChatClient CreateChatClient(AssistantOptions options, bool enableSensitiveData)
+    public static IChatClient CreateChatClient(AssistantOptions options, bool enableSensitiveData, PromptShield? shield = null)
     {
         var builder = new ChatClientBuilder(options.IsAzure ? AzureModel(options.AzureOpenAI) : OllamaModel(options.Ollama));
 
@@ -137,6 +140,12 @@ public sealed class Assistant(IChatClient chat, PublicApiClient api, TimeProvide
             {
                 f.MaximumIterationsPerRequest = 5;          // a model stuck calling tools stops here
                 f.MaximumConsecutiveErrorsPerRequest = 2;
+
+                // Every tool result goes through the shield before the model reads it.
+                if (shield is not null)
+                    f.FunctionInvoker = async (context, ct) =>
+                        await shield.CheckAsync(context.Function.Name,
+                            await context.Function.InvokeAsync(context.Arguments, ct), ct);
             })
             .UseOpenTelemetry(sourceName: TelemetrySource, configure: o => o.EnableSensitiveData = enableSensitiveData)
             .Build();

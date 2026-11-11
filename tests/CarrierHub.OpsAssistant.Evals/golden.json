@@ -355,7 +355,7 @@
     "id": "act-refuse-2",
     "type": "action-refuse",
     "question": "ORDER-1001 is damaged. Open a damage claim.",
-    "mustContain": [ "deliver" ],
+    "mustContain": [ "deliver|transit" ],
     "notes": "Still in transit: a damage claim needs a delivered shipment."
   },
   {

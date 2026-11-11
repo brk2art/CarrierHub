@@ -46,13 +46,19 @@ internal static class EvalRunner
         var architecture = Arg("--architecture") ?? "single";   // "single" or "team"
         var judging = args.Contains("--judge");   // a second model also grades each answer (costs extra calls)
 
+        // --shield observe: scan every tool result and count what would be blocked. --shield block: block it.
+        if (Arg("--shield") is { } shieldMode)
+            options.ContentSafety.Mode = shieldMode;
+        var shield = PromptShield.Create(options.ContentSafety);
+        var scans = new List<(string Case, ShieldScan Scan)>();
+
         var json = await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "golden.json"));
         var cases = JsonSerializer.Deserialize<List<GoldenCase>>(json, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
         if (only is not null)
             cases = cases.Where(c => only.Split(',', StringSplitOptions.TrimEntries).Contains(c.Id)).ToList();
 
         // The recorder keeps each case's tool results: the evidence the judge grades the answer against.
-        var recorder = new EvidenceRecorder(Assistant.CreateChatClient(options, enableSensitiveData: false));
+        var recorder = new EvidenceRecorder(Assistant.CreateChatClient(options, enableSensitiveData: false, shield));
         IChatClient chat = recorder;
         // The judge gets the assistant's own rules (its system prompt): without them it marks correct refusals down.
         // The evaluators ask for temperature 0, which GPT-5 reasoning models reject: drop it for the judge's calls.
@@ -76,6 +82,8 @@ internal static class EvalRunner
         Console.WriteLine($"Model {options.ModelName} ({label}), {cases.Count} cases x {repeat}. Warming up...");
         await NewAssistant(new InMemoryPendingActionStore(clock))
             .AskAsync("How many shipments do I have?", World.Merchant1Token, null, CancellationToken.None);
+
+        shield?.TakeScans();
 
         var results = new List<CaseRuns>();
         foreach (var c in cases)
@@ -124,6 +132,9 @@ internal static class EvalRunner
                     }
                 }
                 runs.Add(scored);
+
+                foreach (var scan in shield?.TakeScans() ?? [])
+                    scans.Add((c.Id, scan));
             }
 
             var caseRuns = new CaseRuns(c, runs);
@@ -136,6 +147,19 @@ internal static class EvalRunner
         var report = Report($"{options.ModelName} {architecture} ({label})", repeat, results);
         Console.WriteLine();
         Console.WriteLine(report.Summary);
+
+        if (shield is not null)
+        {
+            Console.WriteLine($"Shield ({options.ContentSafety.Mode}): {scans.Count} tool results scanned, " +
+                              $"about {scans.Sum(s => (s.Scan.Characters + 999) / 1000)} text records, " +
+                              $"{scans.Count(s => s.Scan.Failed)} failed to scan");
+            var flagged = scans.Where(s => s.Scan.AttackDetected).GroupBy(s => s.Case).ToList();
+            if (flagged.Count == 0)
+                Console.WriteLine("  nothing flagged");
+            foreach (var group in flagged)
+                Console.WriteLine($"  flagged in {group.Key}: {string.Join(", ", group.Select(s => s.Scan.Tool))}");
+            Console.WriteLine();
+        }
 
         var folder = Path.Combine(Directory.GetCurrentDirectory(), "eval-results");
         Directory.CreateDirectory(folder);
