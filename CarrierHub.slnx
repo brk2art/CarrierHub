@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/labs/">
+    <Project Path="labs/CarrierHub.A2ALab/CarrierHub.A2ALab.csproj" />
     <Project Path="labs/CarrierHub.ApprovalLab/CarrierHub.ApprovalLab.csproj" />
     <Project Path="labs/CarrierHub.CheckpointLab/CarrierHub.CheckpointLab.csproj" />
   </Folder>

@@ -2,6 +2,10 @@ using CarrierHub.AssistantTools;
 using CarrierHub.OpsAssistant;
 using CarrierHub.OpsAssistant.Data;
 using Microsoft.EntityFrameworkCore;
+using A2A;
+using A2A.AspNetCore;
+using Microsoft.Agents.AI;
+using Microsoft.Extensions.AI;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -41,6 +45,11 @@ builder.Services.AddSingleton(sweep);
 builder.Services.AddSingleton<SweepRunner>();
 builder.Services.AddHostedService<SweepService>();
 
+// The agent other agents may call (A2A): carrier terms only.
+builder.Services.AddKeyedSingleton<AIAgent>(CarrierTermsAgent.Name, (sp, _) =>
+    CarrierTermsAgent.Create(sp.GetRequiredService<IChatClient>(), sp.GetService<PolicyTools>()));
+builder.AddA2AServer(CarrierTermsAgent.Name);
+
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
@@ -55,6 +64,24 @@ app.UseDefaultFiles();
 app.UseStaticFiles();
 
 app.MapAssistant();
+
+// A2A: the protocol endpoints, and the card other agents discover it by.
+app.MapA2AHttpJson(CarrierTermsAgent.Name, "/a2a/carrier-terms");
+app.MapWellKnownAgentCard(new AgentCard
+{
+    Name = "CarrierHub carrier terms",
+    Description = CarrierTermsAgent.Description,
+    Version = "1.0",
+    SupportedInterfaces =
+    [
+        new AgentInterface
+        {
+            Url = "https://localhost:7243/a2a/carrier-terms",
+            ProtocolBinding = ProtocolBindingNames.HttpJson,
+            ProtocolVersion = "1.0",
+        }
+    ]
+});
 
 if (app.Environment.IsDevelopment())
     app.MapSweeps();
