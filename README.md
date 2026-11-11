@@ -6,7 +6,8 @@ a secure public API and signed webhooks. An AI ops assistant answers merchants' 
 and the carriers' terms, through the same API and with the caller's permissions, and can prepare a claim with the
 carrier that only a person can approve.
 
-**Status:** Phase 5 of 7 done (AI assistant). [Roadmap](#roadmap)
+**Status:** Phase 5 of 7 done (AI assistant), plus the agent engineering around it: MCP in both directions, memory,
+a background agent, an LLM judge, A2A. [Roadmap](#roadmap)
 
 ## Architecture today
 
@@ -30,6 +31,10 @@ flowchart LR
     A --> ADB[(assistantdb<br/>pending actions, audit)]
     A -- "search" --> S[(Azure AI Search<br/>carrier terms)]
     H[Person approving] -- "write token" --> A
+    A -- "MCP client, allowlist" --> CAL[Calendar MCP server<br/>another team's]
+    MC[MCP client] -- "Entra ID token" --> MH[MCP server over HTTP]
+    MH -- "on behalf of the user" --> P
+    OA[Other agents and UIs] -- "A2A, AG-UI<br/>carrier terms only" --> A
 ```
 
 The queue and the topic are Azure Service Bus (the local emulator in development). The three carriers
@@ -37,6 +42,22 @@ and the merchant are simulated (`CarrierHub.MockCarriers`) so their failures can
 errors, latency, duplicates, shuffled order and rate limits.
 
 ## What works
+
+**Agent engineering (after Phase 5)** ([what was built and what each step measured](docs/agent-engineering.md))
+- **A remote MCP server protected by Entra ID** (`CarrierHub.McpHttp`): Streamable HTTP, protected resource
+  metadata (RFC 9728), and the on-behalf-of flow to the Public API instead of passing the caller's token through.
+- **The assistant as an MCP client**: it uses another team's MCP server (public holidays and working days) through an
+  allowlist, connects on first use, and tells the model when those tools are unavailable.
+- **Memory with a budget**: conversations in PostgreSQL survive restarts; old tool results are dropped from what is
+  sent to the model, so a long chat costs the same per turn as a short one.
+- **Structured output**: a typed lateness verdict where the model fills in facts and C# does the arithmetic.
+- **A background agent** (the sweep): finds late shipments, checks them 3 at a time, prepares claims for a person to
+  approve, remembers every decision, and treats "unknown" as its own outcome instead of "no".
+- **An LLM judge next to the word checks** (`Microsoft.Extensions.AI.Evaluation`), measured before it was trusted.
+- **Prompt Shields on tool results** (Azure AI Content Safety), with off, observe and block modes.
+- **A2A and AG-UI**: one narrow agent (carrier terms only, no merchant data) that other agents and UIs can call.
+- **Two labs** against the framework's built-in tool approval and workflow checkpoints, and why claims keep the
+  hand-built approval.
 
 **AI ops assistant (Phase 5)** ([how it works and what the evaluations found](docs/ops-assistant.md))
 - **Answers questions with tools over the Public API**, using the caller's own token: it can never see more than
@@ -58,6 +79,8 @@ errors, latency, duplicates, shuffled order and rate limits.
   every carrier's terms when it knew the carrier; both fixed and measured.
 - **The same tools as an MCP server** (`CarrierHub.McpServer`, stdio), usable from MCP clients such as Claude Code,
   with the merchant's token.
+- **A chat page** (React, `CarrierHub.OpsAssistant.Web`): answers streamed over Server-Sent Events, tool calls shown
+  as they happen, and a card for each prepared claim with Approve and Reject and its audit trail.
 - **Claims in the Public API**: `POST /v1/claims` with a required `Idempotency-Key` header and the write scope,
   `GET /v1/claims`, and `GET /v1/me` (who the validated token belongs to).
 
@@ -120,6 +143,22 @@ errors, latency, duplicates, shuffled order and rate limits.
 
 ## Measured results
 
+**Agent engineering** (details in [docs/agent-engineering.md](docs/agent-engineering.md))
+
+| What | Result |
+|---|---|
+| History budget (the same 6 questions) | Input tokens **38,030 → 24,856** (35% less). Without it each turn cost about 1,250 tokens more than the one before; with it the cost per turn is flat. Evaluations unchanged: 124/126, every conversation case passing. |
+| The sweep (5 late shipments) | 2 claims prepared, 3 skipped, about 7,000 input tokens per shipment, 13 s. Run three times: the same two pending actions. With decisions remembered: **0 tokens** when nothing is new, 6,829 for one new shipment. |
+| An LLM judge (42 cases) | The stock relevance judge disagreed with the word checks on 15 answers and was wrong on **all 15** (it marked correct refusals down). Given the assistant's own rules: 7 disagreements, **3 of them real problems** the word checks couldn't see, including a carrier's deadline reworded from "filed" to "prepared". After the fixes: 41/42 agreement. |
+| Prompt Shields (about 110 tool results) | **0 false alarms.** The blunt injection was flagged every time; the plausible note asking for an action was **missed every time**. About 66 text records per 42 questions, 0.9 s per question. |
+| Built-in tool approval (lab) | The tool waits and a pending approval survives a restart, but a **forged approval for a call nobody requested ran**. Claims keep the hand-built approval. |
+| Workflow checkpoints (lab) | A workflow waiting for a person resumed in a new process without repeating its first step. Resuming the same checkpoint twice opened the claim twice, until the step had its own idempotency key. |
+| Carrier terms and public holidays | "On time" took four tries: the search dropped the section with the holiday rule, then the model didn't look for it, then it counted working days itself. Reading a carrier's whole terms costs 10% more input tokens. |
+
+Lesson: the framework features (approvals, checkpoints, a stock judge, a classifier) are building blocks. What they
+guarantee had to be measured, and each time the guarantee that mattered (who approved, exactly once, what counts as a
+correct answer) stayed in the application's own code and data.
+
 **Phase 5: AI assistant** (details in [docs/ops-assistant.md](docs/ops-assistant.md))
 
 | What | Result |
@@ -176,7 +215,7 @@ a metric per HTTP try (Phase 4).
 | Public API | 10 | Merchant from token, scopes, no internal fields, 502 on failure, rate limit per merchant, webhook endpoints |
 | Carrier contracts | 18 | Real payloads per carrier; summer, winter and both clock-change hours; signatures, tampering and replays |
 | Notification | 5 | Signed merchant webhooks, delivery log, one success per message |
-| Ops Assistant evaluations | 42 scenarios × 3 | Right tool, arguments, answer and actions: lookups, counts, isolation, prompt injection, conversations, claims prepared, refused and never approved by the model, carriers' terms combined with shipment data |
+| Ops Assistant evaluations | 42 scenarios × 3 | Right tool, arguments, answer and actions: lookups, counts, isolation, prompt injection, conversations, claims prepared, refused and never approved by the model, carriers' terms combined with shipment data. Optional: an LLM judge (`--judge`) and Prompt Shields (`--shield observe`) |
 
 ```
 dotnet test
@@ -214,6 +253,17 @@ dotnet run --project src/CarrierHub.PolicyIndexer
 
 Without search settings, the assistant runs without the policy tool.
 
+Optional, each off until it is set (all in the Ops Assistant's user secrets):
+
+| Setting | What it turns on |
+|---|---|
+| `Assistant:ContentSafety:Endpoint`, `:Key`, `:Mode` (`Observe` or `Block`) | Prompt Shields on tool results (an Azure AI Content Safety resource; the Free tier is enough) |
+| `Assistant:Sweep:Token` (a read-only merchant token) | The sweep, through `POST /v1/assistant/sweeps` in Development |
+| `Assistant:Sweep:Scheduled` = `true`, `Assistant:Sweep:Interval` | The sweep on a timer |
+
+The remote MCP server (`CarrierHub.McpHttp`) needs two Entra ID app registrations; its settings are listed at the top
+of its `Program.cs`.
+
 Then:
 
 ```
@@ -249,8 +299,21 @@ come from the real index, because retrieval is part of what is measured.
 dotnet run --project tests/CarrierHub.OpsAssistant.Evals -- --provider AzureOpenAI --repeat 3 --label my-run
 ```
 
-Options: `--case act-1,act-2`, `--model`, `--reasoning low|medium|high`, `--min 0.95` (exit code 1 below it). A full
-run costs about 40 cents; a report with every failing answer goes to `eval-results/`.
+Options: `--case act-1,act-2`, `--model`, `--reasoning low|medium|high`, `--min 0.95` (exit code 1 below it),
+`--architecture single|team`, `--judge` (a second model also grades each answer; the report lists where it disagrees
+with the checks) and `--shield observe|block`. A full run costs about 40 cents; a report with every failing answer
+goes to `eval-results/`.
+
+### Labs
+
+Small console apps that test one thing each:
+
+```
+dotnet run --project labs/CarrierHub.ApprovalLab                       # the framework's built-in tool approval
+dotnet run --project labs/CarrierHub.CheckpointLab -- start            # a workflow that waits for a person...
+dotnet run --project labs/CarrierHub.CheckpointLab -- resume approve   # ...and resumes in a new process
+dotnet run --project labs/CarrierHub.A2ALab                            # another agent discovers and calls ours (AppHost running)
+```
 
 ### Load tests
 
@@ -281,9 +344,12 @@ Start each comparison from an empty database (delete the postgres volume), and w
 11. [Polling within a carrier's request budget](docs/adr/0011-polling-within-a-carrier-budget.md)
 12. [Session consumers: many slots, a short idle; the emulator is the local ceiling](docs/adr/0012-session-consumers-and-the-local-ceiling.md)
 13. [What limited throughput locally, and what we changed](docs/adr/0013-what-limited-throughput-locally.md)
+14. [Keep the hand-built approval for claims](docs/adr/0014-keep-hand-built-claim-approval.md)
 
 For the AI assistant (the agent proposes and a person approves, enforcement in code and permissions, idempotency
-from the proposal, "no answer" as a state of its own): [docs/ops-assistant.md](docs/ops-assistant.md).
+from the proposal, "no answer" as a state of its own): [docs/ops-assistant.md](docs/ops-assistant.md). For what came
+after (trust boundaries around tools, memory, the background agent, judging and shielding):
+[docs/agent-engineering.md](docs/agent-engineering.md).
 
 ## Roadmap
 
@@ -294,6 +360,7 @@ from the proposal, "no answer" as a state of its own): [docs/ops-assistant.md](d
 | 3. Messaging | Azure Service Bus, transactional outbox, merchant webhooks | Done |
 | 4. Observability and load | One trace per carrier event, k6 load tests with real numbers | Done |
 | 5. AI assistant | Tool calling over the Public API, RAG over carrier terms, evaluations, MCP, actions with human approval | Done |
+| 5b. Agent engineering | Remote MCP with Entra ID, MCP client, memory, structured output, a background agent, an LLM judge, Prompt Shields, A2A and AG-UI | Done |
 | 6. Cloud delivery | Docker, Helm, Terraform, AKS, GitHub Actions | Planned |
 | 7. Publish | Demo video, final write-up | Planned |
 
@@ -302,9 +369,10 @@ instead of immediate redelivery, encrypted webhook secrets, and an SSRF guard on
 From Phase 4: queue depth per Service Bus entity, a sampling policy, warm-up before readiness, ordering the
 active-shipments query by creation, a shared polling schedule for several Gateway instances, and capacity
 numbers on Azure.
-From Phase 5: conversations in a database (they are in memory for 30 minutes), the claim-note
-rule in code (today it is an instruction, measured in every run), policy citations checked in code, an MCP server over
-HTTP, and clean-up of old actions.
+From Phase 5: the claim-note rule in code (today it is an instruction, measured in every run), policy citations
+checked in code, and clean-up of old actions and conversations. From the agent engineering: authentication on the A2A
+and AG-UI endpoints, the sweep as a scheduled job with a page for its "unclear" decisions, the shield limited to
+tools that carry outside text, and a judge model different from the assistant's.
 
 ## Tech
 
@@ -313,4 +381,6 @@ HTTP, and clean-up of old actions.
 (Microsoft.Extensions.Http.Resilience), JWT bearer authentication, ASP.NET Core rate limiting,
 HMAC-SHA256 webhook signatures, xUnit, Testcontainers, k6. AI: Microsoft Agent Framework,
 Microsoft.Extensions.AI, Azure OpenAI (gpt-5.4-mini, text-embedding-3-small), Azure AI Search (hybrid search),
-Ollama, Model Context Protocol (C# SDK).
+Microsoft.Extensions.AI.Evaluation, Azure AI Content Safety (Prompt Shields), Ollama, Model Context Protocol (C# SDK,
+server and client), A2A and AG-UI (preview packages), Microsoft Entra ID (MSAL, on-behalf-of), React and Vite for the
+chat page.

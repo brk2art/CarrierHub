@@ -8,6 +8,9 @@ the data allows it, and records every step.
 .NET 10, Microsoft Agent Framework, Microsoft.Extensions.AI, Azure OpenAI (gpt-5.4-mini), Azure AI Search, PostgreSQL,
 Aspire.
 
+What was built around it afterwards (a remote MCP server with Entra ID, the assistant as an MCP client, memory, a
+background agent, an LLM judge, Prompt Shields, A2A and AG-UI) is in [agent-engineering.md](agent-engineering.md).
+
 ## How it works
 
 ```mermaid
@@ -214,10 +217,14 @@ with many more tools, a cheaper model for routing, or agents owned by different 
 | Endpoint | Token | What it does |
 |---|---|---|
 | `POST /v1/assistant/ask` | any merchant token | asks a question; the response lists the actions it prepared |
+| `POST /v1/assistant/ask/stream` | any merchant token | the same answer as Server-Sent Events: tool calls, text, then the full response. The chat page uses it |
+| `POST /v1/assistant/lateness` | any merchant token | a typed lateness verdict: the model fills in facts, C# calculates |
 | `GET /v1/assistant/actions[?status=Pending]` | any | this merchant's actions, newest first |
 | `GET /v1/assistant/actions/{id}` | any | one action with its audit trail |
 | `POST /v1/assistant/actions/{id}/approve` | `shipments:write` | approves and executes |
 | `POST /v1/assistant/actions/{id}/reject` | any | rejects; saying no is always safe |
+| `POST /v1/assistant/sweeps` | none (Development only) | runs the background sweep now, with the sweep's own read-only token |
+| `/a2a/carrier-terms`, `/agui/carrier-terms` | none yet | the carrier-terms agent for other agents (A2A) and UIs (AG-UI); it has no access to merchant data |
 
 And in the Public API: `POST /v1/claims` (write scope, `Idempotency-Key` header required), `GET /v1/claims`,
 `GET /v1/me`.
@@ -247,8 +254,8 @@ run costs about 40 cents.
 
 - **The note rule is enforced only by instructions.** 105/105 means no failure in 3 runs per case, not "never". A
   stricter version would accept only a note that appears in the user's message, in code.
-- **Conversations are still in memory** (30 minutes); pending actions and the audit trail are in PostgreSQL.
-- **No page for approvals yet:** today they're HTTP requests.
+- **Conversations are tied to the token that started them** (its hash), so a renewed token starts a new
+  conversation. They are stored in PostgreSQL and expire after 24 idle hours.
 - **One kind of action.** Adding another means a new tool, a new executor call and new eval cases; the store, the
   endpoints and the audit trail stay the same.
 - **Old actions are never deleted.**
