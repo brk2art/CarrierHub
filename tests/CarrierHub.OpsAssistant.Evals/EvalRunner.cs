@@ -1,14 +1,15 @@
-﻿using System.Globalization;
-using System.Text;
-using System.Text.Json;
-using CarrierHub.AssistantTools;
+﻿using CarrierHub.AssistantTools;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
+using System.Globalization;
+using System.Text;
+using System.Text.Json;
 
 namespace CarrierHub.OpsAssistant.Evals;
 
 // dotnet run --project tests/CarrierHub.OpsAssistant.Evals -- --label tools-v5 [--provider AzureOpenAI] [--model qwen2.5:7b]
-//   [--reasoning low] [--repeat 3] [--case lookup-1,filter-1] [--min 0.8]
+//   [--reasoning low] [--repeat 3] [--case lookup-1,filter-1] [--min 0.8] [--architecture single|team] [--judge]
 // Ollama: needs Ollama running. Azure OpenAI: needs Assistant:AzureOpenAI:Endpoint and :ApiKey in user secrets.
 // The AppHost isn't needed either way: the Public API is the fake one in World.cs.
 internal static class EvalRunner
@@ -43,13 +44,23 @@ internal static class EvalRunner
         var repeat = int.Parse(Arg("--repeat") ?? "1", CultureInfo.InvariantCulture);
         var minPass = double.Parse(Arg("--min") ?? "0", CultureInfo.InvariantCulture);
         var architecture = Arg("--architecture") ?? "single";   // "single" or "team"
+        var judging = args.Contains("--judge");   // a second model also grades each answer (costs extra calls)
 
         var json = await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "golden.json"));
         var cases = JsonSerializer.Deserialize<List<GoldenCase>>(json, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
         if (only is not null)
             cases = cases.Where(c => only.Split(',', StringSplitOptions.TrimEntries).Contains(c.Id)).ToList();
 
-        var chat = Assistant.CreateChatClient(options, enableSensitiveData: false);
+        // The recorder keeps each case's tool results: the evidence the judge grades the answer against.
+        var recorder = new EvidenceRecorder(Assistant.CreateChatClient(options, enableSensitiveData: false));
+        IChatClient chat = recorder;
+        // The judge gets the assistant's own rules (its system prompt): without them it marks correct refusals down.
+        // The evaluators ask for temperature 0, which GPT-5 reasoning models reject: drop it for the judge's calls.
+        var judge = judging
+            ? new Judge(new ChatClientBuilder(Assistant.CreateChatClient(options, enableSensitiveData: false))
+                .ConfigureOptions(o => o.Temperature = null)
+                .Build(), Assistant.SystemPrompt(World.Now))
+            : null;
         var api = new PublicApiClient(new HttpClient(new FakePublicApi()) { BaseAddress = new Uri("https://publicapi.test") });
         var conversations = new InMemoryConversationStore(new MemoryCache(new MemoryCacheOptions()));
         var clock = new FixedTime(World.Now);
@@ -77,6 +88,7 @@ internal static class EvalRunner
                 var store = new InMemoryPendingActionStore(clock);
                 var assistant = NewAssistant(store);
                 var writesBefore = FakePublicApi.WriteAttempts;
+                recorder.Clear();
                 try
                 {
                     // Earlier turns first, in one conversation; only the last answer is scored.
@@ -95,7 +107,23 @@ internal static class EvalRunner
                 }
 
                 var proposals = await store.ListAsync("merchant-1", null, CancellationToken.None);
-                runs.Add(Scoring.Score(c, result, error, proposals, FakePublicApi.WriteAttempts - writesBefore));
+                var scored = Scoring.Score(c, result, error, proposals, FakePublicApi.WriteAttempts - writesBefore);
+                if (judge is not null && result?.Response is { } answered)
+                {
+                    try
+                    {
+                        List<string> questions = [.. c.Before ?? [], c.Question];
+                        scored = scored with
+                        {
+                            Judge = await judge.EvaluateAsync(questions, answered.Answer, recorder.Evidence, CancellationToken.None)
+                        };
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"  judge failed for {c.Id}: {ex.Message}");
+                    }
+                }
+                runs.Add(scored);
             }
 
             var caseRuns = new CaseRuns(c, runs);
@@ -152,6 +180,20 @@ internal static class EvalRunner
             summary.AppendLine($"  {group.Key,-10} {Rate(runs.Count(r => r.Passed), runs.Count)}");
         }
 
+        // The judge's scores, and how often it agrees with the word checks. It never changes pass or fail.
+        var judged = allRuns.Where(r => r.Judge is not null).ToList();
+        if (judged.Count > 0)
+        {
+            var grounded = judged.Where(r => r.Judge!.Groundedness is not null).ToList();
+            var adherent = judged.Where(r => r.Judge!.Adherence is not null).ToList();
+            summary.AppendLine($"Judge (1-5, pass at {Judgement.PassMark}): " +
+                               $"groundedness {(grounded.Count == 0 ? 0 : grounded.Average(r => r.Judge!.Groundedness!.Value)):0.0} over {grounded.Count} answers with evidence, " +
+                               $"adherence {(adherent.Count == 0 ? 0 : adherent.Average(r => r.Judge!.Adherence!.Value)):0.0} over {adherent.Count}");
+            summary.AppendLine($"Checks and judge agree: {Rate(judged.Count(r => r.Passed == r.Judge!.Ok), judged.Count)}   " +
+                               $"checks pass, judge fails: {judged.Count(r => r.Passed && !r.Judge!.Ok)}   " +
+                               $"checks fail, judge passes: {judged.Count(r => !r.Passed && r.Judge!.Ok)}");
+        }
+
         var md = new StringBuilder();
         md.AppendLine($"# Ops Assistant evaluation: {title}");
         md.AppendLine();
@@ -185,6 +227,30 @@ internal static class EvalRunner
                 md.AppendLine($"**{r.Case.Id}, run {i}:** {string.Join("; ", run.Problems)}");
                 md.AppendLine();
                 md.AppendLine($"> {(run.Response?.Answer ?? "(no answer)").Replace("\n", " ")}");
+            }
+        }
+
+        // Where the word checks and the judge disagree: each one is either a check that's wrong or a judge that's wrong.
+        if (judged.Count > 0)
+        {
+            md.AppendLine();
+            md.AppendLine("## Judge vs checks: disagreements");
+            foreach (var r in results)
+            {
+                foreach (var (run, i) in r.Runs.Select((run, i) => (run, i + 1))
+                             .Where(x => x.run.Judge is { } j && j.Ok != x.run.Passed))
+                {
+                    var j = run.Judge!;
+                    md.AppendLine();
+                    md.AppendLine($"**{r.Case.Id}, run {i}:** checks {(run.Passed ? "PASS" : "FAIL: " + string.Join("; ", run.Problems))}; " +
+                                  $"judge groundedness {j.Groundedness?.ToString("0") ?? "-"}, adherence {j.Adherence?.ToString("0") ?? "-"}");
+                    md.AppendLine();
+                    md.AppendLine($"> {(run.Response?.Answer ?? "").Replace("\n", " ")}");
+                    if (j.Groundedness < Judgement.PassMark)
+                        md.AppendLine($"> *Groundedness:* {j.GroundednessReason?.Replace("\n", " ")}");
+                    if (j.Adherence < Judgement.PassMark)
+                        md.AppendLine($"> *Adherence:* {j.AdherenceReason?.Replace("\n", " ")}");
+                }
             }
         }
 

@@ -23,6 +23,8 @@ public sealed record CaseResult(GoldenCase Case, AskResponse? Response, bool Too
     bool ActionsOk, IReadOnlyList<string> Problems)
 {
     public bool Passed => ToolsOk && ArgsOk && AnswerOk && ActionsOk;
+
+    public Judgement? Judge { get; init; }   // only with --judge
 }
 
 // Four questions per case, in order of how cheap they are to answer: did it call the right tool, with the right
