@@ -6,6 +6,7 @@ using A2A;
 using A2A.AspNetCore;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
+using Microsoft.Agents.AI.Hosting.AGUI.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -50,6 +51,8 @@ builder.Services.AddKeyedSingleton<AIAgent>(CarrierTermsAgent.Name, (sp, _) =>
     CarrierTermsAgent.Create(sp.GetRequiredService<IChatClient>(), sp.GetService<PolicyTools>()));
 builder.AddA2AServer(CarrierTermsAgent.Name);
 
+builder.Services.AddAGUIServer();
+
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
@@ -82,6 +85,9 @@ app.MapWellKnownAgentCard(new AgentCard
         }
     ]
 });
+
+// AG-UI: the same narrow agent, as a standard event stream a UI can consume.
+app.MapAGUIServer("/agui/carrier-terms", app.Services.GetRequiredKeyedService<AIAgent>(CarrierTermsAgent.Name));
 
 if (app.Environment.IsDevelopment())
     app.MapSweeps();
