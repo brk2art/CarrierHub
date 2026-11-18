@@ -482,3 +482,5 @@ $RECYCLE.BIN/
 *.swp
 
 src/CarrierHub.OpsAssistant/wwwroot/
+ops/budget.bicepparam
+*.zip
