@@ -484,3 +484,4 @@ $RECYCLE.BIN/
 src/CarrierHub.OpsAssistant/wwwroot/
 ops/budget.bicepparam
 *.zip
+.azure
