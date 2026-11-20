@@ -1,7 +1,9 @@
 var builder = DistributedApplication.CreateBuilder(args);
 
 // PostgreSQL in a container; the volume keeps data between runs.
-var postgres = builder.AddPostgres("postgres").WithDataVolume();
+var postgres = builder.AddAzurePostgresFlexibleServer("postgres")
+    .RunAsContainer(pg => pg.WithDataVolume());
+
 var trackingDb = postgres.AddDatabase("trackingdb");
 var notificationDb = postgres.AddDatabase("notificationdb");
 var assistantDb = postgres.AddDatabase("assistantdb");
