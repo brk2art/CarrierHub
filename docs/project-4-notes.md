@@ -79,6 +79,42 @@ Working notes. The README and the post are written from these at the end.
 - Design-time DbContext factories (`Host=localhost`) are only used by `dotnet ef`, so they stay.
 - 58/58 tests pass.
 
+### Migrations in Azure
+- Before: migrations ran at startup only in Development, so the Azure databases would have no tables.
+- Now: `Database:MigrateOnStartup` (set to true by the AppHost for tracking, notification and
+  opsassistant) also turns it on outside Development. Missing setting = false = no migration.
+- Chosen for the demo because it's simple and works with azd up. The identity needs schema rights
+  (it's the Entra admin). EF Core 9+ locks the database while migrating, so parallel replicas are safe.
+- Production answer: an EF migration bundle in the deployment pipeline, before the new version starts.
+- Regenerating infra showed exactly 3 changed files, one env var each: committed infra makes
+  the effect of an AppHost change visible in `git diff`.
+
+### First azd up
+- West Europe failed validation: "region is currently not accepting new customers" for every
+  regional resource. Nothing was created ($0). Content Safety had hit the same restriction.
+- Moved the environment to Sweden Central (`azd env set AZURE_LOCATION swedencentral`) and ran
+  `azd provision --preview` before deploying.
+- Sweden Central: provisioning succeeded. Postgres Flexible Server took 6 min 27 s;
+  the registry, Log Analytics, Service Bus and the Container Apps environment took 1–2 min each, in parallel.
+- SUCCESS in 15 min 36 s (provisioning 10:32, deploying 6:34: 7 images built and pushed in parallel).
+- Only publicapi has a public URL; every other service is `.internal` (reachable only inside the
+  Container Apps environment), including OpsAssistant.
+- From the internet: `GET /v1/shipments` without a token → 401 with `www-authenticate: Bearer`.
+  The API runs in Azure behind HTTPS and refuses anonymous calls.
+- Small hardening item: the response shows `server: Kestrel`; turn the server header off (Week 4).
+- Tracking in Azure: logged in to Postgres with the managed identity (Entra token) and applied all
+  4 migrations at startup. Both fixes confirmed.
+- Npgsql logs "Cannot load library libgssapi_krb5.so.2": the chiseled image has no Kerberos library.
+  Harmless (it carries on), but noise to turn off later.
+- Startup probe failed while Tracking was migrating, then recovered (Week 4: health checks).
+- OpsAssistant crash-looped: "Set Assistant:AzureOpenAI:Endpoint" (settings are in local user secrets).
+- azd up said SUCCESS and the dashboard said Running while OpsAssistant had 0/1 replicas ready.
+  Neither checks that the app works, so the pipeline needs a smoke test after deploying (Week 5).
+- Images pulled from the registry: opsassistant 81.8 MB, tracking 77.6 MB (compressed; 258 MB on disk).
+- `azd down --purge`: 16 resources deleted (Log Analytics purged) in 25 min 50 s.
+  Session overhead ≈ 40 min (16 up + 26 down), so plan several tasks per deployed session.
+- Real cost of the first session: check Cost analysis the next day (it lags ~24 h).
+
 ## Open items
 - [ ] Build the chat page (OpsAssistant.Web) into wwwroot before the OpsAssistant image is built;
       wwwroot is gitignored.
@@ -87,7 +123,7 @@ Working notes. The README and the post are written from these at the end.
       sweep token live in local user secrets, which don't travel. Plan: managed identity + roles for
       the Azure AI services (no keys), secret parameter from the AppHost for the sweep token.
 - [x] Postgres login: the services must use Entra tokens (managed identity), not a password.
-- [ ] Migrations run at startup only in Development, so the Azure databases would have no tables.
+- [x] Migrations run at startup only in Development, so the Azure databases would have no tables.
 
 ## Numbers so far
 | Measure | Value |
@@ -97,3 +133,5 @@ Working notes. The README and the post are written from these at the end.
 | Tracking image size | 384 MB → 258 MB (−33%) |
 | Azure cost so far | $0 (nothing deployed yet) |
 | Estimated cost per 3-hour session | ~$0.30 |
+| azd up (first deploy) | 15 min 36 s |
+| azd down --purge | 25 min 50 s |
