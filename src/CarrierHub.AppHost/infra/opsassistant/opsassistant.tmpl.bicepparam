@@ -1,0 +1,12 @@
+using './opsassistant-containerapp.module.bicep'
+
+param env_outputs_azure_container_apps_environment_default_domain = '{{ .Env.ENV_AZURE_CONTAINER_APPS_ENVIRONMENT_DEFAULT_DOMAIN }}'
+param env_outputs_azure_container_apps_environment_id = '{{ .Env.ENV_AZURE_CONTAINER_APPS_ENVIRONMENT_ID }}'
+param env_outputs_azure_container_registry_endpoint = '{{ .Env.ENV_AZURE_CONTAINER_REGISTRY_ENDPOINT }}'
+param env_outputs_azure_container_registry_managed_identity_id = '{{ .Env.ENV_AZURE_CONTAINER_REGISTRY_MANAGED_IDENTITY_ID }}'
+param opsassistant_containerimage = '{{ .Image }}'
+param opsassistant_containerport = '{{ targetPortOrDefault 8080 }}'
+param opsassistant_identity_outputs_clientid = '{{ .Env.OPSASSISTANT_IDENTITY_CLIENTID }}'
+param opsassistant_identity_outputs_id = '{{ .Env.OPSASSISTANT_IDENTITY_ID }}'
+param postgres_outputs_connectionstring = '{{ .Env.POSTGRES_CONNECTIONSTRING }}'
+param postgres_outputs_hostname = '{{ .Env.POSTGRES_HOSTNAME }}'

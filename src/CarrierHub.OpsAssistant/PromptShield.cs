@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.AI;
+﻿using Azure.Identity;
+using Microsoft.Extensions.AI;
 using System.Collections.Concurrent;
 using System.Text.Json;
 
@@ -36,16 +37,22 @@ public sealed class PromptShield
 
     public static PromptShield? Create(PromptShieldOptions options, ILogger? logger = null)
     {
-        if (string.IsNullOrEmpty(options.Endpoint) || string.IsNullOrEmpty(options.Key) ||
+        if (string.IsNullOrEmpty(options.Endpoint) ||
             options.Mode.Equals("Off", StringComparison.OrdinalIgnoreCase))
             return null;
 
-        var http = new HttpClient
-        {
-            BaseAddress = new Uri(options.Endpoint.TrimEnd('/') + "/"),
-            Timeout = TimeSpan.FromSeconds(5),   // a slow shield must not hold up every tool call
-        };
-        http.DefaultRequestHeaders.Add("Ocp-Apim-Subscription-Key", options.Key);
+        // With a key (local): send the key. Without one (Azure): send the managed identity's token.
+        var http = string.IsNullOrEmpty(options.Key)
+            ? new HttpClient(new BearerTokenHandler(new DefaultAzureCredential(),
+                "https://cognitiveservices.azure.com/.default") { InnerHandler = new HttpClientHandler() })
+            : new HttpClient();
+
+        http.BaseAddress = new Uri(options.Endpoint.TrimEnd('/') + "/");
+        http.Timeout = TimeSpan.FromSeconds(5);   // a slow shield must not hold up every tool call
+
+        if (!string.IsNullOrEmpty(options.Key))
+            http.DefaultRequestHeaders.Add("Ocp-Apim-Subscription-Key", options.Key);
+
         return new(http, options.Mode.Equals("Block", StringComparison.OrdinalIgnoreCase), logger);
     }
 

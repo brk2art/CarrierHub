@@ -31,16 +31,53 @@ resource rg 'Microsoft.Resources/resourceGroups@2022-09-01' = {
   location: location
   tags: tags
 }
-module resources 'resources.bicep' = {
-  scope: rg
-  name: 'resources'
+
+module contentsafety 'contentsafety/contentsafety.module.bicep' = {
+  name: 'contentsafety'
+  scope: resourceGroup('rg-docchat-dev')
   params: {
     location: location
-    tags: tags
-    principalId: principalId
   }
 }
-
+module env 'env/env.module.bicep' = {
+  name: 'env'
+  scope: rg
+  params: {
+    env_acr_outputs_name: env_acr.outputs.name
+    location: location
+    userPrincipalId: principalId
+  }
+}
+module env_acr 'env-acr/env-acr.module.bicep' = {
+  name: 'env-acr'
+  scope: rg
+  params: {
+    location: location
+  }
+}
+module foundry 'foundry/foundry.module.bicep' = {
+  name: 'foundry'
+  scope: resourceGroup('rg-docchat-dev')
+  params: {
+    location: location
+  }
+}
+module gateway_identity 'gateway-identity/gateway-identity.module.bicep' = {
+  name: 'gateway-identity'
+  scope: rg
+  params: {
+    location: location
+  }
+}
+module gateway_roles_messaging 'gateway-roles-messaging/gateway-roles-messaging.module.bicep' = {
+  name: 'gateway-roles-messaging'
+  scope: rg
+  params: {
+    location: location
+    messaging_outputs_name: messaging.outputs.name
+    principalId: gateway_identity.outputs.principalId
+  }
+}
 module messaging 'messaging/messaging.module.bicep' = {
   name: 'messaging'
   scope: rg
@@ -48,14 +85,71 @@ module messaging 'messaging/messaging.module.bicep' = {
     location: location
   }
 }
-module messaging_roles 'messaging-roles/messaging-roles.module.bicep' = {
-  name: 'messaging-roles'
+module notification_identity 'notification-identity/notification-identity.module.bicep' = {
+  name: 'notification-identity'
+  scope: rg
+  params: {
+    location: location
+  }
+}
+module notification_roles_messaging 'notification-roles-messaging/notification-roles-messaging.module.bicep' = {
+  name: 'notification-roles-messaging'
   scope: rg
   params: {
     location: location
     messaging_outputs_name: messaging.outputs.name
-    principalId: resources.outputs.MANAGED_IDENTITY_PRINCIPAL_ID
-    principalType: 'ServicePrincipal'
+    principalId: notification_identity.outputs.principalId
+  }
+}
+module notification_roles_postgres 'notification-roles-postgres/notification-roles-postgres.module.bicep' = {
+  name: 'notification-roles-postgres'
+  scope: rg
+  params: {
+    location: location
+    postgres_outputs_name: postgres.outputs.name
+    principalId: notification_identity.outputs.principalId
+    principalName: notification_identity.outputs.principalName
+  }
+}
+module opsassistant_identity 'opsassistant-identity/opsassistant-identity.module.bicep' = {
+  name: 'opsassistant-identity'
+  scope: rg
+  params: {
+    location: location
+  }
+}
+module opsassistant_roles_contentsafety 'opsassistant-roles-contentsafety/opsassistant-roles-contentsafety.module.bicep' = {
+  name: 'opsassistant-roles-contentsafety'
+  scope: resourceGroup('rg-docchat-dev')
+  params: {
+    location: location
+    principalId: opsassistant_identity.outputs.principalId
+  }
+}
+module opsassistant_roles_foundry 'opsassistant-roles-foundry/opsassistant-roles-foundry.module.bicep' = {
+  name: 'opsassistant-roles-foundry'
+  scope: resourceGroup('rg-docchat-dev')
+  params: {
+    location: location
+    principalId: opsassistant_identity.outputs.principalId
+  }
+}
+module opsassistant_roles_postgres 'opsassistant-roles-postgres/opsassistant-roles-postgres.module.bicep' = {
+  name: 'opsassistant-roles-postgres'
+  scope: rg
+  params: {
+    location: location
+    postgres_outputs_name: postgres.outputs.name
+    principalId: opsassistant_identity.outputs.principalId
+    principalName: opsassistant_identity.outputs.principalName
+  }
+}
+module opsassistant_roles_search 'opsassistant-roles-search/opsassistant-roles-search.module.bicep' = {
+  name: 'opsassistant-roles-search'
+  scope: resourceGroup('rg-docchat-dev')
+  params: {
+    location: location
+    principalId: opsassistant_identity.outputs.principalId
   }
 }
 module postgres 'postgres/postgres.module.bicep' = {
@@ -65,28 +159,57 @@ module postgres 'postgres/postgres.module.bicep' = {
     location: location
   }
 }
-module postgres_roles 'postgres-roles/postgres-roles.module.bicep' = {
-  name: 'postgres-roles'
+module search 'search/search.module.bicep' = {
+  name: 'search'
+  scope: resourceGroup('rg-docchat-dev')
+  params: {
+    location: location
+  }
+}
+module tracking_identity 'tracking-identity/tracking-identity.module.bicep' = {
+  name: 'tracking-identity'
+  scope: rg
+  params: {
+    location: location
+  }
+}
+module tracking_roles_messaging 'tracking-roles-messaging/tracking-roles-messaging.module.bicep' = {
+  name: 'tracking-roles-messaging'
+  scope: rg
+  params: {
+    location: location
+    messaging_outputs_name: messaging.outputs.name
+    principalId: tracking_identity.outputs.principalId
+  }
+}
+module tracking_roles_postgres 'tracking-roles-postgres/tracking-roles-postgres.module.bicep' = {
+  name: 'tracking-roles-postgres'
   scope: rg
   params: {
     location: location
     postgres_outputs_name: postgres.outputs.name
-    principalId: resources.outputs.MANAGED_IDENTITY_PRINCIPAL_ID
-    principalName: resources.outputs.MANAGED_IDENTITY_NAME
-    principalType: 'ServicePrincipal'
+    principalId: tracking_identity.outputs.principalId
+    principalName: tracking_identity.outputs.principalName
   }
 }
-
-output MANAGED_IDENTITY_CLIENT_ID string = resources.outputs.MANAGED_IDENTITY_CLIENT_ID
-output MANAGED_IDENTITY_NAME string = resources.outputs.MANAGED_IDENTITY_NAME
-output AZURE_LOG_ANALYTICS_WORKSPACE_NAME string = resources.outputs.AZURE_LOG_ANALYTICS_WORKSPACE_NAME
-output AZURE_CONTAINER_REGISTRY_ENDPOINT string = resources.outputs.AZURE_CONTAINER_REGISTRY_ENDPOINT
-output AZURE_CONTAINER_REGISTRY_MANAGED_IDENTITY_ID string = resources.outputs.AZURE_CONTAINER_REGISTRY_MANAGED_IDENTITY_ID
-output AZURE_CONTAINER_REGISTRY_NAME string = resources.outputs.AZURE_CONTAINER_REGISTRY_NAME
-output AZURE_CONTAINER_APPS_ENVIRONMENT_NAME string = resources.outputs.AZURE_CONTAINER_APPS_ENVIRONMENT_NAME
-output AZURE_CONTAINER_APPS_ENVIRONMENT_ID string = resources.outputs.AZURE_CONTAINER_APPS_ENVIRONMENT_ID
-output AZURE_CONTAINER_APPS_ENVIRONMENT_DEFAULT_DOMAIN string = resources.outputs.AZURE_CONTAINER_APPS_ENVIRONMENT_DEFAULT_DOMAIN
+output AZURE_CONTAINER_APPS_ENVIRONMENT_DEFAULT_DOMAIN string = env.outputs.AZURE_CONTAINER_APPS_ENVIRONMENT_DEFAULT_DOMAIN
+output AZURE_CONTAINER_REGISTRY_ENDPOINT string = env.outputs.AZURE_CONTAINER_REGISTRY_ENDPOINT
+output CONTENTSAFETY_CONNECTIONSTRING string = contentsafety.outputs.connectionString
+output ENV_AZURE_CONTAINER_APPS_ENVIRONMENT_DEFAULT_DOMAIN string = env.outputs.AZURE_CONTAINER_APPS_ENVIRONMENT_DEFAULT_DOMAIN
+output ENV_AZURE_CONTAINER_APPS_ENVIRONMENT_ID string = env.outputs.AZURE_CONTAINER_APPS_ENVIRONMENT_ID
+output ENV_AZURE_CONTAINER_REGISTRY_ENDPOINT string = env.outputs.AZURE_CONTAINER_REGISTRY_ENDPOINT
+output ENV_AZURE_CONTAINER_REGISTRY_MANAGED_IDENTITY_ID string = env.outputs.AZURE_CONTAINER_REGISTRY_MANAGED_IDENTITY_ID
+output FOUNDRY_CONNECTIONSTRING string = foundry.outputs.connectionString
+output GATEWAY_IDENTITY_CLIENTID string = gateway_identity.outputs.clientId
+output GATEWAY_IDENTITY_ID string = gateway_identity.outputs.id
 output MESSAGING_SERVICEBUSENDPOINT string = messaging.outputs.serviceBusEndpoint
 output MESSAGING_SERVICEBUSHOSTNAME string = messaging.outputs.serviceBusHostName
+output NOTIFICATION_IDENTITY_CLIENTID string = notification_identity.outputs.clientId
+output NOTIFICATION_IDENTITY_ID string = notification_identity.outputs.id
+output OPSASSISTANT_IDENTITY_CLIENTID string = opsassistant_identity.outputs.clientId
+output OPSASSISTANT_IDENTITY_ID string = opsassistant_identity.outputs.id
 output POSTGRES_CONNECTIONSTRING string = postgres.outputs.connectionString
 output POSTGRES_HOSTNAME string = postgres.outputs.hostName
+output SEARCH_CONNECTIONSTRING string = search.outputs.connectionString
+output TRACKING_IDENTITY_CLIENTID string = tracking_identity.outputs.clientId
+output TRACKING_IDENTITY_ID string = tracking_identity.outputs.id

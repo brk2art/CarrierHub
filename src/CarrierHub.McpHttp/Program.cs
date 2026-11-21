@@ -1,5 +1,6 @@
 using Azure;
 using Azure.AI.OpenAI;
+using Azure.Identity;
 using Azure.Search.Documents;
 using CarrierHub.AssistantTools;
 using CarrierHub.McpHttp;
@@ -148,11 +149,20 @@ static PolicyTools? CreatePolicyTools(IConfiguration config)
     var searchKey = config["Assistant:Search:QueryKey"];
     var openAiEndpoint = config["Assistant:AzureOpenAI:Endpoint"];
     var openAiKey = config["Assistant:AzureOpenAI:ApiKey"];
-    if (searchEndpoint is null || searchKey is null || openAiEndpoint is null || openAiKey is null)
+    if (searchEndpoint is null || openAiEndpoint is null)
         return null;
 
-    var search = new SearchClient(new Uri(searchEndpoint), PolicyTools.IndexName, new AzureKeyCredential(searchKey));
-    var embedder = new AzureOpenAIClient(new Uri(openAiEndpoint), new AzureKeyCredential(openAiKey))
+    var identity = new DefaultAzureCredential();   // one instance, shared by both clients
+
+    var search = string.IsNullOrEmpty(searchKey)
+        ? new SearchClient(new Uri(searchEndpoint), PolicyTools.IndexName, identity)
+        : new SearchClient(new Uri(searchEndpoint), PolicyTools.IndexName, new AzureKeyCredential(searchKey));
+
+    var openAi = string.IsNullOrEmpty(openAiKey)
+        ? new AzureOpenAIClient(new Uri(openAiEndpoint), identity)
+        : new AzureOpenAIClient(new Uri(openAiEndpoint), new AzureKeyCredential(openAiKey));
+
+    var embedder = openAi
         .GetEmbeddingClient(config["Assistant:AzureOpenAI:EmbeddingDeployment"] ?? "embedding")
         .AsIEmbeddingGenerator();
     return new PolicyTools(search, embedder);

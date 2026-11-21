@@ -1,4 +1,11 @@
+using Azure.Provisioning.CognitiveServices;
+using Azure.Provisioning.Search;
+
 var builder = DistributedApplication.CreateBuilder(args);
+
+// The Azure Container Apps environment is described here, not left to azd. That's needed for
+// explicit role assignments (least privilege) and lets us configure the environment in C#.
+builder.AddAzureContainerAppEnvironment("env");
 
 // PostgreSQL in a container; the volume keeps data between runs.
 var postgres = builder.AddAzurePostgresFlexibleServer("postgres")
@@ -97,7 +104,7 @@ var calendarMcp = builder.AddProject<Projects.CarrierHub_CalendarMcp>("calendarm
 
 // The AI ops assistant. Its shipment data comes only through the Public API, with the caller's token; its own
 // database holds what it prepared for approval and the audit trail, nothing else.
-builder.AddProject<Projects.CarrierHub_OpsAssistant>("opsassistant")
+var opsAssistant = builder.AddProject<Projects.CarrierHub_OpsAssistant>("opsassistant")
     .WithReference(publicApi)
     .WaitFor(publicApi)
     .WithReference(assistantDb)
@@ -107,6 +114,28 @@ builder.AddProject<Projects.CarrierHub_OpsAssistant>("opsassistant")
     .WithEnvironment("Assistant__Ollama__Endpoint", "http://localhost:11434")
     .WithEnvironment("Assistant__Ollama__Model", "qwen2.5:7b")
     .WithEnvironment("Database__MigrateOnStartup", "true");
+
+// In Azure only: OpsAssistant uses DocChat's existing AI resources with its managed identity, no keys.
+// This block runs only when azd reads the AppHost (publish mode). Locally, the keys in user secrets are used.
+if (builder.ExecutionContext.IsPublishMode)
+{
+    const string aiGroup = "rg-docchat-dev";
+
+    var foundry = builder.AddAzureOpenAI("foundry").PublishAsExisting("docchat-foundry", aiGroup);
+    var search = builder.AddAzureSearch("search").PublishAsExisting("docchat-search-burak", aiGroup);
+    // Aspire has no Content Safety resource. An existing "OpenAI" resource is just a named
+    // Cognitive Services account, which is all a role assignment needs.
+    var contentSafety = builder.AddAzureOpenAI("contentsafety").PublishAsExisting("carrierhub-contentsafety", aiGroup);
+
+    opsAssistant
+        .WithRoleAssignments(foundry, CognitiveServicesBuiltInRole.CognitiveServicesOpenAIUser)
+        .WithRoleAssignments(search, SearchBuiltInRole.SearchIndexDataReader)
+        .WithRoleAssignments(contentSafety, CognitiveServicesBuiltInRole.CognitiveServicesUser)
+        .WithEnvironment("Assistant__AzureOpenAI__Endpoint", "https://docchat-foundry.cognitiveservices.azure.com/")
+        .WithEnvironment("Assistant__Search__Endpoint", "https://docchat-search-burak.search.windows.net")
+        .WithEnvironment("Assistant__ContentSafety__Endpoint", "https://carrierhub-contentsafety.cognitiveservices.azure.com/")
+        .WithEnvironment("Assistant__ContentSafety__Mode", "Observe");
+}
 
 // CarrierHub's tools as a remote MCP server (Streamable HTTP at /mcp).
 builder.AddProject<Projects.CarrierHub_McpHttp>("mcphttp")
