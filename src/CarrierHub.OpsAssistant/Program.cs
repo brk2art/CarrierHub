@@ -22,7 +22,7 @@ builder.Services.AddHttpClient<PublicApiClient>(c => c.BaseAddress = new Uri("ht
 builder.Services.AddHttpClient<ClaimExecutor>(c => c.BaseAddress = new Uri("https+http://publicapi"));
 
 // What the assistant prepared for approval, and the audit trail: in PostgreSQL, so a restart loses nothing.
-builder.AddNpgsqlDbContext<AssistantDbContext>("assistantdb");   // connection string comes from Aspire
+builder.AddAzureNpgsqlDbContext<AssistantDbContext>("assistantdb");   // connection string comes from Aspire
 builder.Services.AddScoped<IPendingActionStore, PostgresPendingActionStore>();
 
 // Which model answers: Assistant:Provider ("Ollama" or "AzureOpenAI") comes from the AppHost; the Azure endpoint

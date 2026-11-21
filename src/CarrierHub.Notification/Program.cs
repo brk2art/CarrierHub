@@ -11,7 +11,7 @@ using Polly;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
-builder.AddNpgsqlDbContext<NotificationDbContext>("notificationdb");
+builder.AddAzureNpgsqlDbContext<NotificationDbContext>("notificationdb");
 builder.Services.AddSingleton(TimeProvider.System);
 
 // Merchant endpoints: a short retry and timeouts, but no circuit breaker. One breaker shared by all
