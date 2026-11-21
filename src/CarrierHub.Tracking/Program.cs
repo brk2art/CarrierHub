@@ -24,12 +24,13 @@ if (builder.Configuration.GetConnectionString("messaging") is not null)
 
 var app = builder.Build();
 
-if (app.Environment.IsDevelopment())
+if (app.Environment.IsDevelopment() || app.Configuration.GetValue<bool>("Database:MigrateOnStartup"))
 {
     app.MapOpenApi();
 
-    // Development only: bring the database up to date at startup.
-    // Production will use a migration bundle in the deployment pipeline (Phase 6).
+    // Bring the database up to date at startup: always in Development, and in Azure when
+    // Database:MigrateOnStartup is true (set by the AppHost). Production would use a
+    // migration bundle in the deployment pipeline instead.
     using var scope = app.Services.CreateScope();
     await scope.ServiceProvider.GetRequiredService<TrackingDbContext>().Database.MigrateAsync();
 }

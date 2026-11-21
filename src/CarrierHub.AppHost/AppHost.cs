@@ -51,14 +51,16 @@ var tracking = builder.AddProject<Projects.CarrierHub_Tracking>("tracking")
     .WithReference(trackingDb)
     .WaitFor(trackingDb)
     .WithReference(messaging)
-    .WaitFor(messaging);
+    .WaitFor(messaging)
+    .WithEnvironment("Database__MigrateOnStartup", "true");
 
 // Delivers status changes to merchants' own webhook URLs. Owns the webhooks and the delivery log.
 var notification = builder.AddProject<Projects.CarrierHub_Notification>("notification")
     .WithReference(notificationDb)
     .WaitFor(notificationDb)
     .WithReference(messaging)
-    .WaitFor(messaging);
+    .WaitFor(messaging)
+    .WithEnvironment("Database__MigrateOnStartup", "true");
 
 // The merchant-facing API. It reaches shipment data only through Tracking.
 var publicApi = builder.AddProject<Projects.CarrierHub_PublicApi>("publicapi")
@@ -103,7 +105,8 @@ builder.AddProject<Projects.CarrierHub_OpsAssistant>("opsassistant")
     .WithReference(calendarMcp)
     .WithEnvironment("Assistant__Provider", "AzureOpenAI")            // or "Ollama" for the local model
     .WithEnvironment("Assistant__Ollama__Endpoint", "http://localhost:11434")
-    .WithEnvironment("Assistant__Ollama__Model", "qwen2.5:7b");
+    .WithEnvironment("Assistant__Ollama__Model", "qwen2.5:7b")
+    .WithEnvironment("Database__MigrateOnStartup", "true");
 
 // CarrierHub's tools as a remote MCP server (Streamable HTTP at /mcp).
 builder.AddProject<Projects.CarrierHub_McpHttp>("mcphttp")

@@ -52,6 +52,8 @@ properties:
             value: http://calendarmcp.internal.{{ .Env.AZURE_CONTAINER_APPS_ENVIRONMENT_DEFAULT_DOMAIN }}
           - name: CALENDARMCP_HTTPS
             value: https://calendarmcp.internal.{{ .Env.AZURE_CONTAINER_APPS_ENVIRONMENT_DEFAULT_DOMAIN }}
+          - name: Database__MigrateOnStartup
+            value: "true"
           - name: HTTP_PORTS
             value: '{{ targetPortOrDefault 0 }}'
           - name: OTEL_DOTNET_EXPERIMENTAL_OTLP_RETRY

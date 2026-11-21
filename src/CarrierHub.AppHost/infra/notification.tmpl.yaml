@@ -34,6 +34,8 @@ properties:
             value: {{ .Env.MANAGED_IDENTITY_CLIENT_ID }}
           - name: ASPNETCORE_FORWARDEDHEADERS_ENABLED
             value: "true"
+          - name: Database__MigrateOnStartup
+            value: "true"
           - name: HTTP_PORTS
             value: '{{ targetPortOrDefault 0 }}'
           - name: MESSAGING_HOST

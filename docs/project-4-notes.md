@@ -70,6 +70,15 @@ Working notes. The README and the post are written from these at the end.
   disableLocalAuth = true, so Entra only, no keys.
 - Estimated cost: about $0.30 per 3-hour session (Postgres ~$0.06, Service Bus ~$0.04, registry ~$0.17).
 
+### Entra login for Postgres
+- Swapped `Aspire.Npgsql.EntityFrameworkCore.PostgreSQL` for `Aspire.Azure.Npgsql.EntityFrameworkCore.PostgreSQL`
+  in 3 services, and `AddNpgsqlDbContext` for `AddAzureNpgsqlDbContext`.
+- The same code works in both places: with a password in the connection string (local Docker,
+  Testcontainers) it uses the password; without one (Azure) it gets an Entra token from the
+  managed identity and refreshes it.
+- Design-time DbContext factories (`Host=localhost`) are only used by `dotnet ef`, so they stay.
+- 58/58 tests pass.
+
 ## Open items
 - [ ] Build the chat page (OpsAssistant.Web) into wwwroot before the OpsAssistant image is built;
       wwwroot is gitignored.
@@ -77,7 +86,7 @@ Working notes. The README and the post are written from these at the end.
 - [ ] OpsAssistant in Azure gets only assistantdb: Azure OpenAI, AI Search, Content Safety and the
       sweep token live in local user secrets, which don't travel. Plan: managed identity + roles for
       the Azure AI services (no keys), secret parameter from the AppHost for the sweep token.
-- [ ] Postgres login: the services must use Entra tokens (managed identity), not a password.
+- [x] Postgres login: the services must use Entra tokens (managed identity), not a password.
 - [ ] Migrations run at startup only in Development, so the Azure databases would have no tables.
 
 ## Numbers so far
