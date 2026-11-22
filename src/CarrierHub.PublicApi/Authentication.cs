@@ -19,16 +19,25 @@ public static class Authentication
     {
         var tenantId = builder.Configuration["Entra:TenantId"];
         var clientId = builder.Configuration["Entra:PublicApi:ClientId"];
+        var entraConfigured = !string.IsNullOrEmpty(tenantId) && !string.IsNullOrEmpty(clientId);
 
-        // Without Entra settings (tests, CI): development tokens only, exactly as before.
-        if (string.IsNullOrEmpty(tenantId) || string.IsNullOrEmpty(clientId))
+        // Development tokens are signed with a key on a developer's machine, so Production never accepts them.
+        // Development and Testing (local runs, tests, CI) still do.
+        var devTokensAllowed = !builder.Environment.IsProduction();
+
+        // Without Entra settings: development tokens only (tests, CI). In Production that would mean
+        // no valid sign-in at all, so refuse to start instead of running with nobody able to call the API.
+        if (!entraConfigured)
         {
+            if (!devTokensAllowed)
+                throw new InvalidOperationException(
+                    "Set Entra:TenantId and Entra:PublicApi:ClientId: development tokens are not accepted in Production.");
+
             builder.Services.AddAuthentication().AddJwtBearer();
             return;
         }
 
-        builder.Services.AddAuthentication(ChooserScheme)
-            .AddJwtBearer() // "Bearer", configured from appsettings as before
+        var auth = builder.Services.AddAuthentication(devTokensAllowed ? ChooserScheme : EntraScheme)
             .AddJwtBearer(EntraScheme, o =>
             {
                 // The issuer and the signing keys come from Entra's published metadata for this tenant.
@@ -39,26 +48,32 @@ public static class Authentication
                 o.MapInboundClaims = false;
                 // Marks identities from this scheme, so the transformation below knows what to translate.
                 o.TokenValidationParameters.AuthenticationType = EntraScheme;
-            })
-            // Only CHOOSES a scheme: it reads the issuer without trusting it. The chosen scheme validates everything,
-            // so a token that lies about its issuer just reaches a scheme that rejects it.
-            .AddPolicyScheme(ChooserScheme, "Development or Entra tokens", o =>
-            {
-                o.ForwardDefaultSelector = context =>
-                {
-                    var header = context.Request.Headers.Authorization.ToString();
-                    if (header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var raw = header["Bearer ".Length..].Trim();
-                        var handler = new JsonWebTokenHandler();
-                        if (handler.CanReadToken(raw)
-                            && handler.ReadJsonWebToken(raw).Issuer.StartsWith(
-                                "https://login.microsoftonline.com/", StringComparison.OrdinalIgnoreCase))
-                            return EntraScheme;
-                    }
-                    return JwtBearerDefaults.AuthenticationScheme;
-                };
             });
+
+        // Outside Production, both kinds of tokens are accepted, and a chooser picks the scheme per request.
+        if (devTokensAllowed)
+        {
+            auth.AddJwtBearer() // "Bearer", configured from appsettings as before
+                // Only CHOOSES a scheme: it reads the issuer without trusting it. The chosen scheme validates everything,
+                // so a token that lies about its issuer just reaches a scheme that rejects it.
+                .AddPolicyScheme(ChooserScheme, "Development or Entra tokens", o =>
+                 {
+                     o.ForwardDefaultSelector = context =>
+                     {
+                         var header = context.Request.Headers.Authorization.ToString();
+                         if (header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+                         {
+                             var raw = header["Bearer ".Length..].Trim();
+                             var handler = new JsonWebTokenHandler();
+                             if (handler.CanReadToken(raw)
+                                 && handler.ReadJsonWebToken(raw).Issuer.StartsWith(
+                                     "https://login.microsoftonline.com/", StringComparison.OrdinalIgnoreCase))
+                                 return EntraScheme;
+                         }
+                         return JwtBearerDefaults.AuthenticationScheme;
+                     };
+                 });
+        }
 
         builder.Services.AddTransient<IClaimsTransformation, EntraClaimsTransformation>();
     }

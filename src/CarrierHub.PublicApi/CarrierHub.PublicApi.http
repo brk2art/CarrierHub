@@ -300,3 +300,11 @@ Content-Type: application/json
 ### Sweep check: wait about 3 minutes, then send. Expect SWEEP-1 to SWEEP-4 as late, SWEEP-5 not.
 GET {{publicapi}}/v1/shipments?late=true
 Authorization: Bearer {{merchant1}}
+
+### Part A check: a dev token still works locally (expect 200)
+GET {{publicapi}}/v1/me
+Authorization: Bearer {{merchant1}}
+
+### Part A check: a made-up token (expect 401)
+GET {{publicapi}}/v1/me
+Authorization: Bearer not-a-real-token
