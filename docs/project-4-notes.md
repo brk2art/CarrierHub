@@ -115,6 +115,52 @@ Working notes. The README and the post are written from these at the end.
   Session overhead ≈ 40 min (16 up + 26 down), so plan several tasks per deployed session.
 - Real cost of the first session: check Cost analysis the next day (it lags ~24 h).
 
+## Week 3: Identity and secrets
+
+### Keyless AI access
+- OpsAssistant's Azure OpenAI and AI Search clients already used "key if set, else DefaultAzureCredential".
+- PromptShield required a key: without one it returned null, so in Azure the prompt-injection shield
+  would have been silently OFF (it fails open). Now it sends an Entra token (BearerTokenHandler,
+  refreshed 5 minutes before expiry) when there's no key.
+- McpHttp runs in Azure too and used keys only. Now key-or-identity for Search and embeddings,
+  with one shared DefaultAzureCredential. Found a bug on the way: it checked searchKey for the OpenAI client.
+- AI Search already allowed Entra (`aadOrApiKey`); all 3 AI resources live in rg-docchat-dev,
+  so CarrierHub depends on DocChat's resource group.
+- `WithRoleAssignments` failed in azd's limited mode ("the application model does not support role
+  assignments"). Limited mode only supports the default roles that come with WithReference, and
+  Search's defaults include write access. Left limited mode with `AddAzureContainerAppEnvironment("env")`:
+  the AppHost now owns the Container Apps environment.
+- Role IDs checked in the generated Bicep: OpenAI User (5e0bd9bd), Search Index Data Reader (1407120a),
+  Cognitive Services User (a97b65f3). OpsAssistant can use the AI resources, not change them.
+- Aspire sets AZURE_TOKEN_CREDENTIALS, so in Azure DefaultAzureCredential only tries the managed identity.
+- Secret scan: values come from securedParameter into @secure() Bicep params, so they're never
+  shown in the portal's deployment history.
+- Caught by reading the diff: McpHttp's guard still required both keys, so the new identity code would
+  never have run. A change can compile and still be dead code.
+
+### Sign-in in Azure
+- The Public API had two schemes: dev tokens (dotnet user-jwts, signed with a key on my laptop)
+  and Entra tokens. The dev scheme was registered in every environment; in Azure it refused
+  everything only because its signing keys happened to be missing: safe by accident.
+- Now dev tokens are only registered outside Production, and Production without Entra settings
+  refuses to start with a clear message.
+- Checked locally: dev token 200, no token 401, made-up token 401, and Production mode
+  without Entra settings stops at startup (tested in 30 seconds instead of a 40-minute deploy).
+- Gotcha: `dotnet run` applies launchSettings.json, which sets Development and overrides
+  $env:ASPNETCORE_ENVIRONMENT. Use `--no-launch-profile` to really run as Production.
+- Tested the whole Entra chain locally for the first time: Azure CLI token → chooser → Entra scheme
+  (signature, issuer, audience, lifetime) → claims transformation (oid → merchant-1,
+  Shipments.Read → shipments:read) → policies. /v1/me 200, read 200, write 403.
+- Two 401s on the way were an expired token (IDX10223), sent from a stale value in the env file.
+  Visual Studio caches the env file: switch the env dropdown or reopen the file after editing it.
+- To get an Entra token for testing: `az account get-access-token --scope api://<id>/Shipments.Read`.
+  It first worked through an earlier consent, not the "authorized client applications" list, which
+  turned out to be empty. Added the Azure CLI (04b07795-8ddb-461a-bbee-02f9e1bf7b46) there explicitly,
+  with both scopes, so the setup doesn't depend on an old consent. The token lasts ~60–90 min.
+- The registration only exposed Shipments.Read, although ScopeMap also knew Shipments.Write: Entra users
+  could read but never create. Locally it never showed, because dev tokens have both scopes.
+  Added the Shipments.Write scope, needed to put data into the empty Azure database.
+
 ## Open items
 - [ ] Build the chat page (OpsAssistant.Web) into wwwroot before the OpsAssistant image is built;
       wwwroot is gitignored.
@@ -124,6 +170,10 @@ Working notes. The README and the post are written from these at the end.
       the Azure AI services (no keys), secret parameter from the AppHost for the sweep token.
 - [x] Postgres login: the services must use Entra tokens (managed identity), not a password.
 - [x] Migrations run at startup only in Development, so the Azure databases would have no tables.
+- [ ] McpHttp in Azure: internal only, and needs Entra settings (client ID, tenant, client secret for
+      on-behalf-of, Mcp:ResourceUrl). Configure when it's exposed, or leave it out of Azure.
+- [ ] Sweep token in Azure: not needed while sweeps are Development-only; comes with the
+      Container Apps job (Week 4).
 
 ## Numbers so far
 | Measure | Value |
