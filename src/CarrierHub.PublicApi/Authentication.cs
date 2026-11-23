@@ -80,7 +80,7 @@ public static class Authentication
 }
 
 // Translates a validated Entra identity into CarrierHub's claims. Entra knows WHO the user is (oid); which merchant
-// they act for is CarrierHub's business, so it comes from CarrierHub's own mapping (Entra:Merchants:<oid>).
+// they act for is CarrierHub's business, so it comes from CarrierHub's own mapping (Entra:MerchantUsers).
 // In a multitenant SaaS this would map the customer's directory (the "tid" claim) instead of one user.
 public sealed class EntraClaimsTransformation(IConfiguration config): IClaimsTransformation
 {
@@ -99,7 +99,7 @@ public sealed class EntraClaimsTransformation(IConfiguration config): IClaimsTra
             return Task.FromResult(principal);
 
         var oid = identity.FindFirst("oid")?.Value;
-        var merchantId = oid is null ? null : config[$"Entra:Merchants:{oid}"];
+        var merchantId = oid is null ? null : MerchantFor(oid);
 
         // A user with no merchant gets no merchant claim, so every policy refuses them (403). Never a default.
         if (merchantId is null)
@@ -119,4 +119,10 @@ public sealed class EntraClaimsTransformation(IConfiguration config): IClaimsTra
 
         return Task.FromResult(new ClaimsPrincipal(translated));
     }
+
+    // Entra:MerchantUsers is a list of { ObjectId, MerchantId } pairs. A list, not Entra:Merchants:<oid>, because in Azure
+    // the object ID comes from a deployment parameter, and a parameter can fill a setting's value but not its name.
+    private string? MerchantFor(string oid) =>
+        config.GetSection("Entra:MerchantUsers").GetChildren()
+            .FirstOrDefault(user => string.Equals(user["ObjectId"], oid, StringComparison.OrdinalIgnoreCase))?["MerchantId"];
 }
