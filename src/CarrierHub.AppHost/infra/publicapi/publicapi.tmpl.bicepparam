@@ -1,5 +1,8 @@
 using './publicapi-containerapp.module.bicep'
 
+param entramerchantuserobjectid_value = '{{ parameter "entraMerchantUserObjectId" }}'
+param entrapublicapiclientid_value = '{{ parameter "entraPublicApiClientId" }}'
+param entratenantid_value = '{{ parameter "entraTenantId" }}'
 param env_outputs_azure_container_apps_environment_default_domain = '{{ .Env.ENV_AZURE_CONTAINER_APPS_ENVIRONMENT_DEFAULT_DOMAIN }}'
 param env_outputs_azure_container_apps_environment_id = '{{ .Env.ENV_AZURE_CONTAINER_APPS_ENVIRONMENT_ID }}'
 param env_outputs_azure_container_registry_endpoint = '{{ .Env.ENV_AZURE_CONTAINER_REGISTRY_ENDPOINT }}'

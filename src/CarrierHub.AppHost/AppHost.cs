@@ -115,10 +115,11 @@ var opsAssistant = builder.AddProject<Projects.CarrierHub_OpsAssistant>("opsassi
     .WithEnvironment("Assistant__Ollama__Model", "qwen2.5:7b")
     .WithEnvironment("Database__MigrateOnStartup", "true");
 
-// In Azure only: OpsAssistant uses DocChat's existing AI resources with its managed identity, no keys.
-// This block runs only when azd reads the AppHost (publish mode). Locally, the keys in user secrets are used.
+// Azure-only settings: keyless AI access for OpsAssistant, and Entra sign-in for the Public API.
+// This block runs only when azd reads the AppHost (publish mode). Locally, user secrets are used.
 if (builder.ExecutionContext.IsPublishMode)
 {
+    // OpsAssistant uses DocChat's existing AI resources with its managed identity, no keys.
     const string aiGroup = "rg-docchat-dev";
 
     var foundry = builder.AddAzureOpenAI("foundry").PublishAsExisting("docchat-foundry", aiGroup);
@@ -135,6 +136,18 @@ if (builder.ExecutionContext.IsPublishMode)
         .WithEnvironment("Assistant__Search__Endpoint", "https://docchat-search-burak.search.windows.net")
         .WithEnvironment("Assistant__ContentSafety__Endpoint", "https://carrierhub-contentsafety.cognitiveservices.azure.com/")
         .WithEnvironment("Assistant__ContentSafety__Mode", "Observe");
+
+    // Sign-in for the Public API in Azure. Not secrets, but specific to my tenant, so they're azd parameters
+    // (asked once at azd up, kept in .azure/), not values in the repo.
+    var entraTenantId = builder.AddParameter("entraTenantId");
+    var entraPublicApiClientId = builder.AddParameter("entraPublicApiClientId");
+    var entraMerchantUserObjectId = builder.AddParameter("entraMerchantUserObjectId");
+
+    publicApi
+        .WithEnvironment("Entra__TenantId", entraTenantId)
+        .WithEnvironment("Entra__PublicApi__ClientId", entraPublicApiClientId)
+        .WithEnvironment("Entra__MerchantUsers__0__ObjectId", entraMerchantUserObjectId)
+        .WithEnvironment("Entra__MerchantUsers__0__MerchantId", "merchant-1");
 }
 
 // CarrierHub's tools as a remote MCP server (Streamable HTTP at /mcp).

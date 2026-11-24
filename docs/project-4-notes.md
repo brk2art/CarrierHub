@@ -160,6 +160,14 @@ Working notes. The README and the post are written from these at the end.
 - The registration only exposed Shipments.Read, although ScopeMap also knew Shipments.Write: Entra users
   could read but never create. Locally it never showed, because dev tokens have both scopes.
   Added the Shipments.Write scope, needed to put data into the empty Azure database.
+- Merchant mapping changed from Entra:Merchants:<oid> = merchant to a list Entra:MerchantUsers:N:{ObjectId, MerchantId}:
+  in Azure the object ID comes from an azd parameter, which can fill a setting's value but not its name.
+  Proven: new code + old secrets → 403 (signed in, no merchant, never a default); new secrets → 200.
+- Reliable Entra test: `curl.exe -H "Authorization: Bearer $entraToken" https://localhost:<port>/v1/me` in the
+  same PowerShell window as `az account get-access-token`. Avoids Visual Studio's cached env file.
+- In Azure, the Public API gets its Entra settings (tenant, client ID, the merchant user's object ID) from
+  3 azd parameters: main.parameters.json only holds references like ${AZURE_ENTRA_TENANT_ID}; the values
+  live in .azure/. Not secrets, but personal, so not in the repo. Regenerating changed only the publicapi module.
 
 ## Open items
 - [ ] Build the chat page (OpsAssistant.Web) into wwwroot before the OpsAssistant image is built;

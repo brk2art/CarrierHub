@@ -9,6 +9,12 @@ param publicapi_containerimage string
 
 param publicapi_containerport string
 
+param entratenantid_value string
+
+param entrapublicapiclientid_value string
+
+param entramerchantuserobjectid_value string
+
 param env_outputs_azure_container_registry_endpoint string
 
 param env_outputs_azure_container_registry_managed_identity_id string
@@ -86,6 +92,22 @@ resource publicapi 'Microsoft.App/containerApps@2025-10-02-preview' = {
             {
               name: 'services__notification__https__0'
               value: 'https://notification.internal.${env_outputs_azure_container_apps_environment_default_domain}'
+            }
+            {
+              name: 'Entra__TenantId'
+              value: entratenantid_value
+            }
+            {
+              name: 'Entra__PublicApi__ClientId'
+              value: entrapublicapiclientid_value
+            }
+            {
+              name: 'Entra__MerchantUsers__0__ObjectId'
+              value: entramerchantuserobjectid_value
+            }
+            {
+              name: 'Entra__MerchantUsers__0__MerchantId'
+              value: 'merchant-1'
             }
           ]
         }
