@@ -113,7 +113,8 @@ var opsAssistant = builder.AddProject<Projects.CarrierHub_OpsAssistant>("opsassi
     .WithEnvironment("Assistant__Provider", "AzureOpenAI")            // or "Ollama" for the local model
     .WithEnvironment("Assistant__Ollama__Endpoint", "http://localhost:11434")
     .WithEnvironment("Assistant__Ollama__Model", "qwen2.5:7b")
-    .WithEnvironment("Database__MigrateOnStartup", "true");
+    .WithEnvironment("Database__MigrateOnStartup", "true")
+    .WithExternalHttpEndpoints();   // public in Azure: every endpoint checks the caller, A2A/AG-UI are Development-only
 
 // Azure-only settings: keyless AI access for OpsAssistant, and Entra sign-in for the Public API.
 // This block runs only when azd reads the AppHost (publish mode). Locally, user secrets are used.

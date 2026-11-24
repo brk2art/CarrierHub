@@ -28,7 +28,7 @@ resource opsassistant 'Microsoft.App/containerApps@2025-10-02-preview' = {
     configuration: {
       activeRevisionsMode: 'Single'
       ingress: {
-        external: false
+        external: true
         targetPort: int(opsassistant_containerport)
         transport: 'http'
       }
