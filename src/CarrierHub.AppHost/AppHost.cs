@@ -154,6 +154,7 @@ if (builder.ExecutionContext.IsPublishMode)
 // CarrierHub's tools as a remote MCP server (Streamable HTTP at /mcp).
 builder.AddProject<Projects.CarrierHub_McpHttp>("mcphttp")
     .WithReference(publicApi)
-    .WaitFor(publicApi);
+    .WaitFor(publicApi)
+    .ExcludeFromManifest();
 
 builder.Build().Run();

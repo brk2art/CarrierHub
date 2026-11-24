@@ -186,6 +186,8 @@ Working notes. The README and the post are written from these at the end.
 - Installed PowerShell 7: azd hooks on Windows need pwsh, and it supports `&&`.
 - `.WithExternalHttpEndpoints()` on opsassistant: regenerating changed exactly one line in Azure
   (ingress external: false → true). Done only after every endpoint was checked.
+- azd infra gen never deletes files it no longer generates: regenerate from scratch
+  (delete infra/ and the AppHost's infra/), and let `git status` show what disappeared.
 
 ### Second azd up: everything tested in Azure
 - 16 min up. All apps Healthy, including OpsAssistant (crash-looped last time).
@@ -211,8 +213,9 @@ Working notes. The README and the post are written from these at the end.
       the Azure AI services (no keys), secret parameter from the AppHost for the sweep token.
 - [x] Postgres login: the services must use Entra tokens (managed identity), not a password.
 - [x] Migrations run at startup only in Development, so the Azure databases would have no tables.
-- [ ] McpHttp in Azure: internal only, and needs Entra settings (client ID, tenant, client secret for
-      on-behalf-of, Mcp:ResourceUrl). Configure when it's exposed, or leave it out of Azure.
+- [ ] McpHttp in Azure: excluded with ExcludeFromManifest() (it crash-looped on purpose without its Entra
+      settings, and nothing in Azure calls it). Add it back with tenant, client ID, client secret for
+      on-behalf-of and Mcp:ResourceUrl when an MCP client should reach it in Azure.
 - [ ] Sweep token in Azure: not needed while sweeps are Development-only; comes with the
       Container Apps job (Week 4).
 
