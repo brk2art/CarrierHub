@@ -184,6 +184,23 @@ Working notes. The README and the post are written from these at the end.
   `npm ci && npm run build`, with a windows (pwsh) and a posix (sh) variant for GitHub Actions later.
   Vite's emptyOutDir clears old hashed files first. Tested with `azd hooks run prepackage`, no deployment.
 - Installed PowerShell 7: azd hooks on Windows need pwsh, and it supports `&&`.
+- `.WithExternalHttpEndpoints()` on opsassistant: regenerating changed exactly one line in Azure
+  (ingress external: false → true). Done only after every endpoint was checked.
+
+### Second azd up: everything tested in Azure
+- 16 min up. All apps Healthy, including OpsAssistant (crash-looped last time).
+- Anonymous calls on the public URLs: ask with a made-up token 401 in 0.33 s (no model), approve 401,
+  AG-UI 405 (not mapped in Production), Public API 401.
+- Entra token against the Public API in Azure: 200, merchant-1, both scopes (the 3 azd parameters work).
+- Created AZURE-1 and AZURE-2 with the Entra token; ~2 min later both were Delivered, AZURE-1 late by 70 s:
+  Gateway → MockCarriers → Service Bus (identity, no keys) → Tracking → Postgres (outbox).
+- Chat page in Azure: the NordPost terms question answered with its source (Azure OpenAI + AI Search, keyless),
+  and "Which of my shipments are late?" → AZURE-1 only.
+- Content Safety in Azure: no shield warnings in the logs, but not yet confirmed by its trace span (open item).
+- McpHttp crash-loops on purpose without its Entra settings (open item: exclude it from Azure).
+- `azd down` failed halfway when the laptop went offline (DNS lookup of login.microsoftonline.com failed):
+  only Log Analytics was purged, everything else kept running for hours. Lesson: run azd down while
+  staying online, and always confirm with `az group exists --name rg-carrierhub-dev` → false.
 
 ## Open items
 - [ ] Build the chat page (OpsAssistant.Web) into wwwroot before the OpsAssistant image is built;
