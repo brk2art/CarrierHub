@@ -169,6 +169,22 @@ Working notes. The README and the post are written from these at the end.
   3 azd parameters: main.parameters.json only holds references like ${AZURE_ENTRA_TENANT_ID}; the values
   live in .azure/. Not secrets, but personal, so not in the repo. Regenerating changed only the publicapi module.
 
+### Exposing OpsAssistant
+- Before giving OpsAssistant a public URL, checked every endpoint it maps. A2A and AG-UI have no sign-in,
+  so they're now Development-only. Actions (list/approve) refuse calls without a token: 401.
+- Found with a trace: `ask` with a made-up token ran the model, called a tool (which got 401), ran
+  Content Safety, ran the model again, and only then returned 401. The token was checked by the first
+  tool, not at the door: anyone could spend my Azure OpenAI budget ("denial of wallet").
+  The budget alert would warn, but not stop it.
+- Only the streaming endpoint checked /v1/me first; ask and lateness relied on the tools to find a bad
+  token. Fixed with an endpoint filter on the /v1/assistant group: every AI endpoint checks the caller
+  before its handler, so a new endpoint can't forget it.
+- Measured with a made-up token: 1.85 s with 2 model calls + Content Safety → 0.04 s with no model call.
+- The chat page is built into OpsAssistant's wwwroot (gitignored) by an azd `prepackage` hook in azure.yaml:
+  `npm ci && npm run build`, with a windows (pwsh) and a posix (sh) variant for GitHub Actions later.
+  Vite's emptyOutDir clears old hashed files first. Tested with `azd hooks run prepackage`, no deployment.
+- Installed PowerShell 7: azd hooks on Windows need pwsh, and it supports `&&`.
+
 ## Open items
 - [ ] Build the chat page (OpsAssistant.Web) into wwwroot before the OpsAssistant image is built;
       wwwroot is gitignored.

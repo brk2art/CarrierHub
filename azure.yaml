@@ -6,3 +6,13 @@ services:
     language: dotnet
     project: ./src/CarrierHub.AppHost/CarrierHub.AppHost.csproj
     host: containerapp
+hooks:
+  # Builds the chat page into OpsAssistant's wwwroot before azd packages the images.
+  # wwwroot is gitignored, so without this the image would have no page, or a stale one.
+  prepackage:
+    windows:
+      shell: pwsh
+      run: npm --prefix src/CarrierHub.OpsAssistant.Web ci && npm --prefix src/CarrierHub.OpsAssistant.Web run build
+    posix:
+      shell: sh
+      run: npm --prefix src/CarrierHub.OpsAssistant.Web ci && npm --prefix src/CarrierHub.OpsAssistant.Web run build
