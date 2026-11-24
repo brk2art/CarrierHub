@@ -7,9 +7,31 @@ public static class AssistantEndpoints
 {
     public static void MapAssistant(this WebApplication app)
     {
-        app.MapPost("/v1/assistant/ask", AskAsync);
-        app.MapPost("/v1/assistant/ask/stream", AskStreamAsync);
-        app.MapPost("/v1/assistant/lateness", CheckLatenessAsync);
+        // Every AI endpoint checks the caller first, so a bad token never reaches the model (or its bill).
+        // A filter on the group, not a check per handler: a new endpoint can't forget it.
+        var assistant = app.MapGroup("/v1/assistant").AddEndpointFilter(RequireValidTokenAsync);
+        assistant.MapPost("/ask", AskAsync);
+        assistant.MapPost("/ask/stream", AskStreamAsync);
+        assistant.MapPost("/lateness", CheckLatenessAsync);
+    }
+
+    // Runs before each handler: one quick /v1/me call (~20 ms) instead of model calls with a token nobody checked.
+    private static async ValueTask<object?> RequireValidTokenAsync(EndpointFilterInvocationContext context,
+        EndpointFilterDelegate next)
+    {
+        var http = context.HttpContext;
+        if (Token(http.Request) is not { } token)
+            return Results.Unauthorized();
+
+        var api = http.RequestServices.GetRequiredService<PublicApiClient>();
+        var me = await api.MeAsync(token, http.RequestAborted);
+        if (me.StatusCode is 401 or 403)
+            return Results.StatusCode(me.StatusCode);
+        if (me.StatusCode != 200)
+            return Results.Problem("Could not check the token. Try again shortly.",
+                statusCode: StatusCodes.Status502BadGateway);
+
+        return await next(context);
     }
 
     private static async Task<IResult> AskAsync(AskRequest request, HttpRequest http, Assistant assistant, CancellationToken ct)

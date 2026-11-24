@@ -70,29 +70,34 @@ app.UseStaticFiles();
 
 app.MapAssistant();
 
-// A2A: the protocol endpoints, and the card other agents discover it by.
-app.MapA2AHttpJson(CarrierTermsAgent.Name, "/a2a/carrier-terms");
-app.MapWellKnownAgentCard(new AgentCard
-{
-    Name = "CarrierHub carrier terms",
-    Description = CarrierTermsAgent.Description,
-    Version = "1.0",
-    SupportedInterfaces =
-    [
-        new AgentInterface
-        {
-            Url = "https://localhost:7243/a2a/carrier-terms",
-            ProtocolBinding = ProtocolBindingNames.HttpJson,
-            ProtocolVersion = "1.0",
-        }
-    ]
-});
-
-// AG-UI: the same narrow agent, as a standard event stream a UI can consume.
-app.MapAGUIServer("/agui/carrier-terms", app.Services.GetRequiredKeyedService<AIAgent>(CarrierTermsAgent.Name));
-
+// Development only. Sweeps run under a token kept in user secrets. A2A and AG-UI have no sign-in yet
+// (Week 4), so in a public deployment anyone could run the carrier-terms agent on my Azure OpenAI bill.
+// The agent card's URL is also still localhost.
 if (app.Environment.IsDevelopment())
+{
     app.MapSweeps();
+
+    // A2A: the protocol endpoints, and the card other agents discover it by.
+    app.MapA2AHttpJson(CarrierTermsAgent.Name, "/a2a/carrier-terms");
+    app.MapWellKnownAgentCard(new AgentCard
+    {
+        Name = "CarrierHub carrier terms",
+        Description = CarrierTermsAgent.Description,
+        Version = "1.0",
+        SupportedInterfaces =
+        [
+            new AgentInterface
+            {
+                Url = "https://localhost:7243/a2a/carrier-terms",
+                ProtocolBinding = ProtocolBindingNames.HttpJson,
+                ProtocolVersion = "1.0",
+            }
+        ]
+    });
+
+    // AG-UI: the same narrow agent, as a standard event stream a UI can consume.
+    app.MapAGUIServer("/agui/carrier-terms", app.Services.GetRequiredKeyedService<AIAgent>(CarrierTermsAgent.Name));
+}
 
 app.MapActions();
 app.MapDefaultEndpoints();
