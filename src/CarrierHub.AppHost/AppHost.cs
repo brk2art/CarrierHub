@@ -157,6 +157,19 @@ if (builder.ExecutionContext.IsPublishMode)
         .WithEnvironment("Entra__PublicApi__ClientId", entraPublicApiClientId)
         .WithEnvironment("Entra__MerchantUsers__0__ObjectId", entraMerchantUserObjectId)
         .WithEnvironment("Entra__MerchantUsers__0__MerchantId", "merchant-1");
+
+    // Telemetry history and alerts in Azure. The Aspire dashboard is for development: it only lives as long as the
+    // environment, and nobody watches it. Each service gets APPLICATIONINSIGHTS_CONNECTION_STRING.
+    var insights = builder.AddAzureApplicationInsights("insights");
+    foreach (var service in new[] { tracking, notification, publicApi, carriers, gateway, calendarMcp, opsAssistant })
+        service.WithReference(insights);
+
+    // The P95 latency alert, written by hand in ops/alerts.bicep: azd creates it with everything else.
+    // The email is an azd parameter (asked once, kept in .azure/), not a value in the repo.
+    var alertEmail = builder.AddParameter("alertEmail");
+    builder.AddBicepTemplate("alerts", "../../ops/alerts.bicep")
+        .WithParameter("appInsightsName", insights.GetOutput("name"))
+        .WithParameter("alertEmail", alertEmail);
 }
 
 // CarrierHub's tools as a remote MCP server (Streamable HTTP at /mcp).

@@ -9,6 +9,8 @@ param calendarmcp_containerimage string
 
 param calendarmcp_containerport string
 
+param insights_outputs_appinsightsconnectionstring string
+
 param env_outputs_azure_container_registry_endpoint string
 
 param env_outputs_azure_container_registry_managed_identity_id string
@@ -86,6 +88,10 @@ resource calendarmcp 'Microsoft.App/containerApps@2025-10-02-preview' = {
             {
               name: 'HTTP_PORTS'
               value: calendarmcp_containerport
+            }
+            {
+              name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
+              value: insights_outputs_appinsightsconnectionstring
             }
           ]
         }

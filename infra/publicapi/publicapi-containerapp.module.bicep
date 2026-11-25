@@ -15,6 +15,8 @@ param entrapublicapiclientid_value string
 
 param entramerchantuserobjectid_value string
 
+param insights_outputs_appinsightsconnectionstring string
+
 param env_outputs_azure_container_registry_endpoint string
 
 param env_outputs_azure_container_registry_managed_identity_id string
@@ -140,6 +142,10 @@ resource publicapi 'Microsoft.App/containerApps@2025-10-02-preview' = {
             {
               name: 'Entra__MerchantUsers__0__MerchantId'
               value: 'merchant-1'
+            }
+            {
+              name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
+              value: insights_outputs_appinsightsconnectionstring
             }
           ]
         }

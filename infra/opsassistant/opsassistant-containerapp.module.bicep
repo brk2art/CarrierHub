@@ -15,6 +15,8 @@ param postgres_outputs_connectionstring string
 
 param postgres_outputs_hostname string
 
+param insights_outputs_appinsightsconnectionstring string
+
 param opsassistant_identity_outputs_clientid string
 
 param env_outputs_azure_container_registry_endpoint string
@@ -182,6 +184,10 @@ resource opsassistant 'Microsoft.App/containerApps@2025-10-02-preview' = {
             {
               name: 'Assistant__ContentSafety__Mode'
               value: 'Observe'
+            }
+            {
+              name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
+              value: insights_outputs_appinsightsconnectionstring
             }
             {
               name: 'AZURE_CLIENT_ID'

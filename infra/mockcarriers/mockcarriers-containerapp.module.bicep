@@ -12,6 +12,8 @@ param mockcarriers_containerport string
 @secure()
 param parcelgo_webhook_secret_value string
 
+param insights_outputs_appinsightsconnectionstring string
+
 param env_outputs_azure_container_registry_endpoint string
 
 param env_outputs_azure_container_registry_managed_identity_id string
@@ -99,6 +101,10 @@ resource mockcarriers 'Microsoft.App/containerApps@2025-10-02-preview' = {
             {
               name: 'ParcelGo__WebhookSecret'
               secretRef: 'parcelgo--webhooksecret'
+            }
+            {
+              name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
+              value: insights_outputs_appinsightsconnectionstring
             }
           ]
         }

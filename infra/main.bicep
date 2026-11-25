@@ -12,6 +12,7 @@ param location string
 @description('Id of the user or app to assign application roles')
 param principalId string = ''
 
+param alertEmail string
 param entraMerchantUserObjectId string
 param entraPublicApiClientId string
 param entraTenantId string
@@ -35,6 +36,15 @@ resource rg 'Microsoft.Resources/resourceGroups@2022-09-01' = {
   tags: tags
 }
 
+module alerts 'alerts/alerts.bicep' = {
+  name: 'alerts'
+  scope: rg
+  params: {
+    alertEmail: alertEmail
+    appInsightsName: insights.outputs.name
+    location: location
+  }
+}
 module contentsafety 'contentsafety/contentsafety.module.bicep' = {
   name: 'contentsafety'
   scope: resourceGroup('rg-docchat-dev')
@@ -79,6 +89,13 @@ module gateway_roles_messaging 'gateway-roles-messaging/gateway-roles-messaging.
     location: location
     messaging_outputs_name: messaging.outputs.name
     principalId: gateway_identity.outputs.principalId
+  }
+}
+module insights 'insights/insights.module.bicep' = {
+  name: 'insights'
+  scope: rg
+  params: {
+    location: location
   }
 }
 module messaging 'messaging/messaging.module.bicep' = {
@@ -205,6 +222,7 @@ output ENV_AZURE_CONTAINER_REGISTRY_MANAGED_IDENTITY_ID string = env.outputs.AZU
 output FOUNDRY_CONNECTIONSTRING string = foundry.outputs.connectionString
 output GATEWAY_IDENTITY_CLIENTID string = gateway_identity.outputs.clientId
 output GATEWAY_IDENTITY_ID string = gateway_identity.outputs.id
+output INSIGHTS_APPINSIGHTSCONNECTIONSTRING string = insights.outputs.appInsightsConnectionString
 output MESSAGING_SERVICEBUSENDPOINT string = messaging.outputs.serviceBusEndpoint
 output MESSAGING_SERVICEBUSHOSTNAME string = messaging.outputs.serviceBusHostName
 output NOTIFICATION_IDENTITY_CLIENTID string = notification_identity.outputs.clientId

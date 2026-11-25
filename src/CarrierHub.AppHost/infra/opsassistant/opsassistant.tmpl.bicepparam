@@ -4,6 +4,7 @@ param env_outputs_azure_container_apps_environment_default_domain = '{{ .Env.ENV
 param env_outputs_azure_container_apps_environment_id = '{{ .Env.ENV_AZURE_CONTAINER_APPS_ENVIRONMENT_ID }}'
 param env_outputs_azure_container_registry_endpoint = '{{ .Env.ENV_AZURE_CONTAINER_REGISTRY_ENDPOINT }}'
 param env_outputs_azure_container_registry_managed_identity_id = '{{ .Env.ENV_AZURE_CONTAINER_REGISTRY_MANAGED_IDENTITY_ID }}'
+param insights_outputs_appinsightsconnectionstring = '{{ .Env.INSIGHTS_APPINSIGHTSCONNECTIONSTRING }}'
 param opsassistant_containerimage = '{{ .Image }}'
 param opsassistant_containerport = '{{ targetPortOrDefault 8080 }}'
 param opsassistant_identity_outputs_clientid = '{{ .Env.OPSASSISTANT_IDENTITY_CLIENTID }}'

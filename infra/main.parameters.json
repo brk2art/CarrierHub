@@ -5,6 +5,9 @@
       "principalId": {
         "value": "${AZURE_PRINCIPAL_ID}"
       },
+      "alertEmail": {
+        "value": "${AZURE_ALERT_EMAIL}"
+      },
       "entraMerchantUserObjectId": {
         "value": "${AZURE_ENTRA_MERCHANT_USER_OBJECT_ID}"
       },

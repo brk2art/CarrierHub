@@ -21,6 +21,8 @@ param messaging_outputs_servicebushostname string
 @secure()
 param parcelgo_webhook_secret_value string
 
+param insights_outputs_appinsightsconnectionstring string
+
 param gateway_identity_outputs_clientid string
 
 param env_outputs_azure_container_registry_endpoint string
@@ -190,6 +192,10 @@ resource gateway 'Microsoft.App/containerApps@2025-10-02-preview' = {
             {
               name: 'ParcelGo__CallbackBaseUrl'
               value: 'https://gateway.internal.${env_outputs_azure_container_apps_environment_default_domain}'
+            }
+            {
+              name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
+              value: insights_outputs_appinsightsconnectionstring
             }
             {
               name: 'AZURE_CLIENT_ID'

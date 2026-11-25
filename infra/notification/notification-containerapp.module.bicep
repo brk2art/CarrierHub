@@ -19,6 +19,8 @@ param messaging_outputs_servicebusendpoint string
 
 param messaging_outputs_servicebushostname string
 
+param insights_outputs_appinsightsconnectionstring string
+
 param notification_identity_outputs_clientid string
 
 param env_outputs_azure_container_registry_endpoint string
@@ -138,6 +140,10 @@ resource notification 'Microsoft.App/containerApps@2025-10-02-preview' = {
             {
               name: 'Database__MigrateOnStartup'
               value: 'true'
+            }
+            {
+              name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
+              value: insights_outputs_appinsightsconnectionstring
             }
             {
               name: 'AZURE_CLIENT_ID'
