@@ -88,7 +88,8 @@ public sealed class EntraClaimsTransformation(IConfiguration config): IClaimsTra
     private static readonly Dictionary<string, string> ScopeMap = new(StringComparer.OrdinalIgnoreCase)
     {
         ["Shipments.Read"] = Scopes.Read,
-        ["Shipments.Write"] = Scopes.Write
+        ["Shipments.Write"] = Scopes.Write,
+        ["Shipments.Read.App"] = Scopes.Read,   // the app role for programs (scopes and app roles can't share a name)
     };
 
     public Task<ClaimsPrincipal> TransformAsync(ClaimsPrincipal principal)

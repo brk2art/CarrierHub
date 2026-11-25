@@ -26,7 +26,7 @@ public class EntraClaimsTransformationTests
     [Fact]
     public async Task A_program_with_the_read_app_role_can_read_but_not_write()
     {
-        var p = await TransformAsync(new Claim("oid", "sweep-job-oid"), new Claim("roles", "Shipments.Read"));
+        var p = await TransformAsync(new Claim("oid", "sweep-job-oid"), new Claim("roles", "Shipments.Read.App"));
 
         Assert.Equal("merchant-1", p.FindFirst(Claims.MerchantId)?.Value);
         Assert.Equal([CarrierHub.PublicApi.Scopes.Read], Scopes(p));
@@ -44,7 +44,7 @@ public class EntraClaimsTransformationTests
     [Fact]
     public async Task A_program_not_mapped_to_a_merchant_gets_no_merchant()
     {
-        var p = await TransformAsync(new Claim("oid", "some-other-app"), new Claim("roles", "Shipments.Read"));
+        var p = await TransformAsync(new Claim("oid", "some-other-app"), new Claim("roles", "Shipments.Read.App"));
 
         Assert.Null(p.FindFirst(Claims.MerchantId));   // so every policy refuses it: never a default merchant
     }
