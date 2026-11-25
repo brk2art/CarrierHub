@@ -204,6 +204,21 @@ Working notes. The README and the post are written from these at the end.
   only Log Analytics was purged, everything else kept running for hours. Lesson: run azd down while
   staying online, and always confirm with `az group exists --name rg-carrierhub-dev` → false.
 
+## Week 4: Production readiness
+
+### Health checks
+- /alive (liveness: only "self") and /health (readiness: what the service can't work without) are now mapped in
+  every environment, so Container Apps can probe them. Safe outside Development: plain status only (no names or
+  errors), /health cached 10 s, /alive checks nothing external.
+- Liveness must never include a dependency: in a Postgres outage, every replica would be restarted at once.
+- Tracking's readiness = TrackingDbContext only. No Service Bus check, and that's right: the outbox keeps
+  Tracking working while the bus is down (measured in Project 3: messages delivered 68 s later).
+- Postgres stopped: /health 503, /alive 200, and Tracking recovered by itself when Postgres came back (200 in
+  0.02 s, no restart). The database check first took 163 s (EF retry-on-failure from the Aspire integration).
+  A 3 s timeout on every check stopped the retries: 15 s, which is Npgsql's own connection timeout (the connect
+  step doesn't react to cancellation). Kept: the probe decides in 5 s anyway, and at most ~2 checks are in
+  flight per replica. Lowering Npgsql's timeout would also affect real queries.
+
 ## Open items
 - [ ] Build the chat page (OpsAssistant.Web) into wwwroot before the OpsAssistant image is built;
       wwwroot is gitignored.

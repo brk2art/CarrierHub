@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
@@ -17,6 +18,7 @@ public static class Extensions
 {
     private const string HealthEndpointPath = "/health";
     private const string AlivenessEndpointPath = "/alive";
+    private const string HealthCachePolicy = "health";
 
     public static TBuilder AddServiceDefaults<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
@@ -108,28 +110,60 @@ public static class Extensions
     public static TBuilder AddDefaultHealthChecks<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
         builder.Services.AddHealthChecks()
-            // Add a default liveness check to ensure app is responsive
+            // Liveness: only "is this process responsive?". Never a dependency here: during a Postgres outage,
+            // a failing liveness check would make Container Apps restart every replica at once.
             .AddCheck("self", () => HealthCheckResult.Healthy(), ["live"]);
+        // The readiness checks for Postgres, Redis and Service Bus come from the Aspire client integrations.
+
+        // /health runs real checks against the dependencies, and on public apps anyone can call it.
+        // Caching the result for 10 s caps the work a caller can cause at one run per 10 s per replica.
+        builder.Services.AddOutputCache(o => o.AddPolicy(HealthCachePolicy, p => p.Expire(TimeSpan.FromSeconds(10))));
+
+        // A health check must answer fast, not retry: Aspire's EF integration retries on failure, which is right for
+        // queries but made the database check take 163 s while Postgres was down. 3 s, then it counts as Unhealthy.
+        builder.Services.PostConfigure<HealthCheckServiceOptions>(o =>
+        {
+            foreach (var registration in o.Registrations)
+                registration.Timeout = TimeSpan.FromSeconds(3);
+        });
 
         return builder;
     }
 
     public static WebApplication MapDefaultEndpoints(this WebApplication app)
     {
-        // Adding health checks endpoints to applications in non-development environments has security implications.
-        // See https://aka.ms/aspire/healthchecks for details before enabling these endpoints in non-development environments.
-        if (app.Environment.IsDevelopment())
-        {
-            // All health checks must pass for app to be considered ready to accept traffic after starting
-            app.MapHealthChecks(HealthEndpointPath);
+        // Mapped in every environment, because Container Apps probes them. What keeps that safe:
+        //   - outside Development the response is only "Healthy", "Degraded" or "Unhealthy": no names, no errors;
+        //   - /health is cached for 10 s, so calling it in a loop doesn't load the database;
+        //   - /alive checks nothing but the process itself.
+        app.UseOutputCache();
 
-            // Only health checks tagged with the "live" tag must pass for app to be considered alive
-            app.MapHealthChecks(AlivenessEndpointPath, new HealthCheckOptions
-            {
-                Predicate = r => r.Tags.Contains("live")
-            });
-        }
+        // Readiness: every check must pass before the replica gets traffic.
+        var readiness = new HealthCheckOptions();
+        if (app.Environment.IsDevelopment())
+            readiness.ResponseWriter = WriteDetailsAsync;   // locally: which check passed or failed, and how long it took
+        app.MapHealthChecks(HealthEndpointPath, readiness).CacheOutput(HealthCachePolicy);
+
+        // Liveness: only the checks tagged "live".
+        app.MapHealthChecks(AlivenessEndpointPath, new HealthCheckOptions
+        {
+            Predicate = r => r.Tags.Contains("live")
+        });
 
         return app;
     }
+
+    // Development only: each check's name, status and duration. Never in Production, because names and
+    // errors tell an attacker what the service depends on.
+    private static Task WriteDetailsAsync(HttpContext context, HealthReport report) =>
+        context.Response.WriteAsJsonAsync(new
+        {
+            status = report.Status.ToString(),
+            checks = report.Entries.Select(e => new
+            {
+                name = e.Key,
+                status = e.Value.Status.ToString(),
+                ms = (int)e.Value.Duration.TotalMilliseconds
+            })
+        });
 }

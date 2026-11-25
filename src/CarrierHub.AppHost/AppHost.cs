@@ -1,3 +1,4 @@
+using Azure.Provisioning.AppContainers;
 using Azure.Provisioning.CognitiveServices;
 using Azure.Provisioning.Search;
 
@@ -7,7 +8,8 @@ var builder = DistributedApplication.CreateBuilder(args);
 // explicit role assignments (least privilege) and lets us configure the environment in C#.
 builder.AddAzureContainerAppEnvironment("env");
 
-// PostgreSQL in a container; the volume keeps data between runs.
+// PostgreSQL: Azure Database for PostgreSQL Flexible Server in Azure, a container locally.
+// Locally, the volume keeps data between runs.
 var postgres = builder.AddAzurePostgresFlexibleServer("postgres")
     .RunAsContainer(pg => pg.WithDataVolume());
 
@@ -43,14 +45,13 @@ var shipmentEvents = messaging.AddServiceBusTopic("shipment-events")
         topic.DuplicateDetectionHistoryTimeWindow = TimeSpan.FromMinutes(5);
     });
 
-// For the Notification service (next step).
+// For the Notification service.
 shipmentEvents.AddServiceBusSubscription("notifications")
     .WithProperties(subscription =>
     {
         subscription.RequiresSession = true;
-        subscription.MaxDeliveryCount = 10;
+        subscription.MaxDeliveryCount = 5;                     // then the dead-letter queue
         subscription.DeadLetteringOnMessageExpiration = true;
-        subscription.MaxDeliveryCount = 5;
     });
 
 // Tracking owns shipments and their timeline. Only it talks to trackingdb.
@@ -59,7 +60,8 @@ var tracking = builder.AddProject<Projects.CarrierHub_Tracking>("tracking")
     .WaitFor(trackingDb)
     .WithReference(messaging)
     .WaitFor(messaging)
-    .WithEnvironment("Database__MigrateOnStartup", "true");
+    .WithEnvironment("Database__MigrateOnStartup", "true")
+    .WithHealthProbes();
 
 // Delivers status changes to merchants' own webhook URLs. Owns the webhooks and the delivery log.
 var notification = builder.AddProject<Projects.CarrierHub_Notification>("notification")
@@ -67,7 +69,8 @@ var notification = builder.AddProject<Projects.CarrierHub_Notification>("notific
     .WaitFor(notificationDb)
     .WithReference(messaging)
     .WaitFor(messaging)
-    .WithEnvironment("Database__MigrateOnStartup", "true");
+    .WithEnvironment("Database__MigrateOnStartup", "true")
+    .WithHealthProbes();
 
 // The merchant-facing API. It reaches shipment data only through Tracking.
 var publicApi = builder.AddProject<Projects.CarrierHub_PublicApi>("publicapi")
@@ -75,16 +78,18 @@ var publicApi = builder.AddProject<Projects.CarrierHub_PublicApi>("publicapi")
     .WaitFor(tracking)
     .WithReference(notification)
     .WaitFor(notification)
-    .WithExternalHttpEndpoints();
+    .WithExternalHttpEndpoints()
+    .WithHealthProbes();
 
 // Shared by ParcelGo (signs webhooks) and the Gateway (verifies them). The value lives in the AppHost's user secrets.
 var parcelGoSecret = builder.AddParameter("parcelgo-webhook-secret", secret: true);
 
 // Simulated carriers with faults you can switch on.
 var carriers = builder.AddProject<Projects.CarrierHub_MockCarriers>("mockcarriers")
-    .WithEnvironment("ParcelGo__WebhookSecret", parcelGoSecret);
+    .WithEnvironment("ParcelGo__WebhookSecret", parcelGoSecret)
+    .WithHealthProbes();
 
-// Carriers only ever talk to the Gateway. Until Phase 3, the Gateway forwards to Tracking over HTTP.
+// Carriers only ever talk to the Gateway, which forwards their events to Tracking through Service Bus.
 var gateway = builder.AddProject<Projects.CarrierHub_CarrierGateway>("gateway")
     .WithReference(carriers)
     .WaitFor(carriers)
@@ -94,13 +99,15 @@ var gateway = builder.AddProject<Projects.CarrierHub_CarrierGateway>("gateway")
     .WaitFor(redis)
     .WithReference(messaging)
     .WaitFor(messaging)
-    .WithEnvironment("ParcelGo__WebhookSecret", parcelGoSecret);
+    .WithEnvironment("ParcelGo__WebhookSecret", parcelGoSecret)
+    .WithHealthProbes();
 
 // ParcelGo needs an address to push to: the Gateway's own https endpoint.
 gateway.WithEnvironment("ParcelGo__CallbackBaseUrl", gateway.GetEndpoint("https"));
 
 // Another team's service, consumed over MCP by the Ops Assistant.
-var calendarMcp = builder.AddProject<Projects.CarrierHub_CalendarMcp>("calendarmcp");
+var calendarMcp = builder.AddProject<Projects.CarrierHub_CalendarMcp>("calendarmcp")
+    .WithHealthProbes();
 
 // The AI ops assistant. Its shipment data comes only through the Public API, with the caller's token; its own
 // database holds what it prepared for approval and the audit trail, nothing else.
@@ -114,7 +121,8 @@ var opsAssistant = builder.AddProject<Projects.CarrierHub_OpsAssistant>("opsassi
     .WithEnvironment("Assistant__Ollama__Endpoint", "http://localhost:11434")
     .WithEnvironment("Assistant__Ollama__Model", "qwen2.5:7b")
     .WithEnvironment("Database__MigrateOnStartup", "true")
-    .WithExternalHttpEndpoints();   // public in Azure: every endpoint checks the caller, A2A/AG-UI are Development-only
+    .WithExternalHttpEndpoints()   // public in Azure: every endpoint checks the caller, A2A/AG-UI are Development-only
+    .WithHealthProbes();
 
 // Azure-only settings: keyless AI access for OpsAssistant, and Entra sign-in for the Public API.
 // This block runs only when azd reads the AppHost (publish mode). Locally, user secrets are used.
@@ -152,9 +160,52 @@ if (builder.ExecutionContext.IsPublishMode)
 }
 
 // CarrierHub's tools as a remote MCP server (Streamable HTTP at /mcp).
+// Local only for now: in Azure it needs its Entra settings (client ID, client secret for on-behalf-of,
+// Mcp:ResourceUrl) and nothing there calls it yet, so azd doesn't deploy it.
 builder.AddProject<Projects.CarrierHub_McpHttp>("mcphttp")
     .WithReference(publicApi)
     .WaitFor(publicApi)
     .ExcludeFromManifest();
 
 builder.Build().Run();
+
+static class HealthProbes
+{
+    // Container Apps probes for a service using ServiceDefaults: startup and liveness call /alive (the process
+    // only), readiness calls /health (what the service can't work without).
+    public static IResourceBuilder<ProjectResource> WithHealthProbes(this IResourceBuilder<ProjectResource> project) =>
+        project.PublishAsAzureContainerApp((infra, app) =>
+        {
+            var container = app.Template.Containers.Single().Value!;
+
+            // Startup: up to 2.5 min (30 × 5 s) for the process to come up, including migrations.
+            container.Probes.Add(new ContainerAppProbe
+            {
+                ProbeType = ContainerAppProbeType.Startup,
+                HttpGet = new ContainerAppHttpRequestInfo { Path = "/alive", Port = 8080 },
+                PeriodSeconds = 5,
+                TimeoutSeconds = 3,
+                FailureThreshold = 30,
+            });
+
+            // Readiness: no traffic while a dependency is down. The 5 s timeout decides before the 15 s check ends.
+            container.Probes.Add(new ContainerAppProbe
+            {
+                ProbeType = ContainerAppProbeType.Readiness,
+                HttpGet = new ContainerAppHttpRequestInfo { Path = "/health", Port = 8080 },
+                PeriodSeconds = 10,
+                TimeoutSeconds = 5,
+                FailureThreshold = 3,
+            });
+
+            // Liveness: restart only when the process itself stops answering.
+            container.Probes.Add(new ContainerAppProbe
+            {
+                ProbeType = ContainerAppProbeType.Liveness,
+                HttpGet = new ContainerAppHttpRequestInfo { Path = "/alive", Port = 8080 },
+                PeriodSeconds = 10,
+                TimeoutSeconds = 3,
+                FailureThreshold = 3,
+            });
+        });
+}

@@ -48,6 +48,38 @@ resource opsassistant 'Microsoft.App/containerApps@2025-10-02-preview' = {
     template: {
       containers: [
         {
+          probes: [
+            {
+              failureThreshold: 30
+              httpGet: {
+                path: '/alive'
+                port: 8080
+              }
+              periodSeconds: 5
+              timeoutSeconds: 3
+              type: 'Startup'
+            }
+            {
+              failureThreshold: 3
+              httpGet: {
+                path: '/health'
+                port: 8080
+              }
+              periodSeconds: 10
+              timeoutSeconds: 5
+              type: 'Readiness'
+            }
+            {
+              failureThreshold: 3
+              httpGet: {
+                path: '/alive'
+                port: 8080
+              }
+              periodSeconds: 10
+              timeoutSeconds: 3
+              type: 'Liveness'
+            }
+          ]
           image: opsassistant_containerimage
           name: 'opsassistant'
           env: [
