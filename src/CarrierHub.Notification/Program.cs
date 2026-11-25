@@ -6,12 +6,17 @@ using CarrierHub.Notification.Data;
 using CarrierHub.Notification.Webhooks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Http.Resilience;
+using Npgsql;
 using Polly;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
-builder.AddAzureNpgsqlDbContext<NotificationDbContext>("notificationdb");
+builder.AddAzureNpgsqlDbContext<NotificationDbContext>("notificationdb", settings =>
+    settings.ConnectionString = new NpgsqlConnectionStringBuilder(settings.ConnectionString)
+    {
+        GssEncryptionMode = GssEncryptionMode.Disable
+    }.ConnectionString);
 builder.Services.AddSingleton(TimeProvider.System);
 
 // Merchant endpoints: a short retry and timeouts, but no circuit breaker. One breaker shared by all

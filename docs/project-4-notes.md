@@ -247,6 +247,12 @@ Working notes. The README and the post are written from these at the end.
   "Shipments.Read": a value must be unique across the app's scopes AND app roles. ScopeMap maps it to the same
   CarrierHub scope (shipments:read).
 
+### Small hardening
+- `server: Kestrel` removed from every response (AddServerHeader = false in ServiceDefaults): one less hint
+  for an attacker, and scanners flag it.
+- Npgsql's Kerberos attempt turned off explicitly (GssEncryptionMode.Disable in the 3 services): Entra signs in
+  and TLS encrypts, so each connection no longer tries to load a library the chiseled image doesn't have.
+
 ## Open items
 - [ ] Build the chat page (OpsAssistant.Web) into wwwroot before the OpsAssistant image is built;
       wwwroot is gitignored.

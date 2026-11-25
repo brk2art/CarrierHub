@@ -2,12 +2,17 @@ using CarrierHub.Tracking.Api;
 using CarrierHub.Tracking.Application;
 using CarrierHub.Tracking.Data;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
-builder.AddAzureNpgsqlDbContext<TrackingDbContext>("trackingdb");   // connection string comes from Aspire
+builder.AddAzureNpgsqlDbContext<TrackingDbContext>("trackingdb", settings =>
+    settings.ConnectionString = new NpgsqlConnectionStringBuilder(settings.ConnectionString)
+    {
+        GssEncryptionMode = GssEncryptionMode.Disable
+    }.ConnectionString);   // connection string comes from Aspire
 builder.Services.AddSingleton(TimeProvider.System);            // a fake clock in tests, the real one here
 builder.Services.AddOpenApi();
 builder.Services.ConfigureHttpJsonOptions(o =>

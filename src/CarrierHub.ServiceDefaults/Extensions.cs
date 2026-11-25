@@ -2,10 +2,10 @@ using Azure.Monitor.OpenTelemetry.AspNetCore;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.ServiceDiscovery;
 using OpenTelemetry;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
@@ -46,6 +46,10 @@ public static class Extensions
         // {
         //     options.AllowedSchemes = ["https"];
         // });
+
+        // Don't announce the web server in every response ("server: Kestrel"). Not a fix for any bug, but one less
+        // hint for an attacker, and security scans flag it.
+        builder.Services.Configure<KestrelServerOptions>(o => o.AddServerHeader = false);
 
         return builder;
     }

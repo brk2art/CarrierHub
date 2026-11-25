@@ -1,12 +1,13 @@
+using A2A;
+using A2A.AspNetCore;
 using CarrierHub.AssistantTools;
 using CarrierHub.OpsAssistant;
 using CarrierHub.OpsAssistant.Data;
-using Microsoft.EntityFrameworkCore;
-using A2A;
-using A2A.AspNetCore;
 using Microsoft.Agents.AI;
-using Microsoft.Extensions.AI;
 using Microsoft.Agents.AI.Hosting.AGUI.AspNetCore;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.AI;
+using Npgsql;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -22,7 +23,11 @@ builder.Services.AddHttpClient<PublicApiClient>(c => c.BaseAddress = new Uri("ht
 builder.Services.AddHttpClient<ClaimExecutor>(c => c.BaseAddress = new Uri("https+http://publicapi"));
 
 // What the assistant prepared for approval, and the audit trail: in PostgreSQL, so a restart loses nothing.
-builder.AddAzureNpgsqlDbContext<AssistantDbContext>("assistantdb");   // connection string comes from Aspire
+builder.AddAzureNpgsqlDbContext<AssistantDbContext>("assistantdb", settings =>
+    settings.ConnectionString = new NpgsqlConnectionStringBuilder(settings.ConnectionString)
+    {
+        GssEncryptionMode = GssEncryptionMode.Disable
+    }.ConnectionString);  // connection string comes from Aspire
 builder.Services.AddScoped<IPendingActionStore, PostgresPendingActionStore>();
 
 // Which model answers: Assistant:Provider ("Ollama" or "AzureOpenAI") comes from the AppHost; the Azure endpoint
