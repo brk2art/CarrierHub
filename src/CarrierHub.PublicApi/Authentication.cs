@@ -108,9 +108,13 @@ public sealed class EntraClaimsTransformation(IConfiguration config): IClaimsTra
         var translated = new ClaimsIdentity(identity.Claims, identity.AuthenticationType);
         translated.AddClaim(new Claim(Claims.MerchantId, merchantId));
 
-        // "scp" is one space-separated string: "Shipments.Read Shipments.Write".
-        foreach (var scope in (identity.FindFirst("scp")?.Value ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries))
-            if (ScopeMap.TryGetValue(scope, out var carrierHubScope))
+        // Users get scopes: "scp" is one space-separated string, from consent ("Shipments.Read Shipments.Write").
+        // Programs get app roles: one "roles" claim per role assigned to them in Entra. Both translate the same
+        // way, and anything unknown is ignored.
+        var granted = (identity.FindFirst("scp")?.Value ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Concat(identity.FindAll("roles").Select(c => c.Value));
+        foreach (var permission in granted)
+            if (ScopeMap.TryGetValue(permission, out var carrierHubScope))
                 translated.AddClaim(new Claim("scope", carrierHubScope));
 
         // Who, for /v1/me and the audit trail: the sign-in name when Entra sends one, else the stable object ID.
