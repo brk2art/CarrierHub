@@ -186,6 +186,47 @@ module search 'search/search.module.bicep' = {
     location: location
   }
 }
+module sweep_identity 'sweep-identity/sweep-identity.module.bicep' = {
+  name: 'sweep-identity'
+  scope: rg
+  params: {
+    location: location
+  }
+}
+module sweep_roles_contentsafety 'sweep-roles-contentsafety/sweep-roles-contentsafety.module.bicep' = {
+  name: 'sweep-roles-contentsafety'
+  scope: resourceGroup('rg-docchat-dev')
+  params: {
+    location: location
+    principalId: sweep_identity.outputs.principalId
+  }
+}
+module sweep_roles_foundry 'sweep-roles-foundry/sweep-roles-foundry.module.bicep' = {
+  name: 'sweep-roles-foundry'
+  scope: resourceGroup('rg-docchat-dev')
+  params: {
+    location: location
+    principalId: sweep_identity.outputs.principalId
+  }
+}
+module sweep_roles_postgres 'sweep-roles-postgres/sweep-roles-postgres.module.bicep' = {
+  name: 'sweep-roles-postgres'
+  scope: rg
+  params: {
+    location: location
+    postgres_outputs_name: postgres.outputs.name
+    principalId: sweep_identity.outputs.principalId
+    principalName: sweep_identity.outputs.principalName
+  }
+}
+module sweep_roles_search 'sweep-roles-search/sweep-roles-search.module.bicep' = {
+  name: 'sweep-roles-search'
+  scope: resourceGroup('rg-docchat-dev')
+  params: {
+    location: location
+    principalId: sweep_identity.outputs.principalId
+  }
+}
 module tracking_identity 'tracking-identity/tracking-identity.module.bicep' = {
   name: 'tracking-identity'
   scope: rg
@@ -232,5 +273,8 @@ output OPSASSISTANT_IDENTITY_ID string = opsassistant_identity.outputs.id
 output POSTGRES_CONNECTIONSTRING string = postgres.outputs.connectionString
 output POSTGRES_HOSTNAME string = postgres.outputs.hostName
 output SEARCH_CONNECTIONSTRING string = search.outputs.connectionString
+output SWEEP_IDENTITY_CLIENTID string = sweep_identity.outputs.clientId
+output SWEEP_IDENTITY_ID string = sweep_identity.outputs.id
+output SWEEP_IDENTITY_PRINCIPALID string = sweep_identity.outputs.principalId
 output TRACKING_IDENTITY_CLIENTID string = tracking_identity.outputs.clientId
 output TRACKING_IDENTITY_ID string = tracking_identity.outputs.id

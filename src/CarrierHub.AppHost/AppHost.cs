@@ -1,3 +1,4 @@
+using Aspire.Hosting.Azure;
 using Azure.Provisioning.AppContainers;
 using Azure.Provisioning.CognitiveServices;
 using Azure.Provisioning.Search;
@@ -124,6 +125,24 @@ var opsAssistant = builder.AddProject<Projects.CarrierHub_OpsAssistant>("opsassi
     .WithExternalHttpEndpoints()   // public in Azure: every endpoint checks the caller, A2A/AG-UI are Development-only
     .WithHealthProbes();
 
+// The lateness sweep: the OpsAssistant image started with --sweep-once (one sweep, then exit). Locally it runs only
+// when you click Start in the dashboard, because it can spend model tokens. In Azure: a scheduled Container Apps job.
+var sweepJob = builder.AddProject<Projects.CarrierHub_OpsAssistant>("sweep", launchProfileName: null)
+    .WithArgs("--sweep-once")
+    .WithReference(publicApi)
+    .WaitFor(publicApi)
+    .WithReference(assistantDb)
+    .WaitFor(assistantDb)
+    .WithReference(calendarMcp)
+    .WithEnvironment("Assistant__Provider", "AzureOpenAI")
+    .WithExplicitStart()
+    .PublishAsScheduledAzureContainerAppJob("0 6 * * *");   // every day at 06:00 UTC
+
+// Without a launch profile nothing sets the environment, and outside Development user secrets (the local
+// dev token and AI keys) aren't loaded.
+if (!builder.ExecutionContext.IsPublishMode)
+    sweepJob.WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development");
+
 // Azure-only settings: keyless AI access for OpsAssistant, and Entra sign-in for the Public API.
 // This block runs only when azd reads the AppHost (publish mode). Locally, user secrets are used.
 if (builder.ExecutionContext.IsPublishMode)
@@ -137,14 +156,15 @@ if (builder.ExecutionContext.IsPublishMode)
     // Cognitive Services account, which is all a role assignment needs.
     var contentSafety = builder.AddAzureOpenAI("contentsafety").PublishAsExisting("carrierhub-contentsafety", aiGroup);
 
-    opsAssistant
-        .WithRoleAssignments(foundry, CognitiveServicesBuiltInRole.CognitiveServicesOpenAIUser)
-        .WithRoleAssignments(search, SearchBuiltInRole.SearchIndexDataReader)
-        .WithRoleAssignments(contentSafety, CognitiveServicesBuiltInRole.CognitiveServicesUser)
-        .WithEnvironment("Assistant__AzureOpenAI__Endpoint", "https://docchat-foundry.cognitiveservices.azure.com/")
-        .WithEnvironment("Assistant__Search__Endpoint", "https://docchat-search-burak.search.windows.net")
-        .WithEnvironment("Assistant__ContentSafety__Endpoint", "https://carrierhub-contentsafety.cognitiveservices.azure.com/")
-        .WithEnvironment("Assistant__ContentSafety__Mode", "Observe");
+    // OpsAssistant and the sweep job each use DocChat's AI resources with their OWN managed identity, no keys.
+    foreach (var app in new[] { opsAssistant, sweepJob })
+        app.WithRoleAssignments(foundry, CognitiveServicesBuiltInRole.CognitiveServicesOpenAIUser)
+            .WithRoleAssignments(search, SearchBuiltInRole.SearchIndexDataReader)
+            .WithRoleAssignments(contentSafety, CognitiveServicesBuiltInRole.CognitiveServicesUser)
+            .WithEnvironment("Assistant__AzureOpenAI__Endpoint", "https://docchat-foundry.cognitiveservices.azure.com/")
+            .WithEnvironment("Assistant__Search__Endpoint", "https://docchat-search-burak.search.windows.net")
+            .WithEnvironment("Assistant__ContentSafety__Endpoint", "https://carrierhub-contentsafety.cognitiveservices.azure.com/")
+            .WithEnvironment("Assistant__ContentSafety__Mode", "Observe");
 
     // Sign-in for the Public API in Azure. Not secrets, but specific to my tenant, so they're azd parameters
     // (asked once at azd up, kept in .azure/), not values in the repo.
@@ -158,10 +178,19 @@ if (builder.ExecutionContext.IsPublishMode)
         .WithEnvironment("Entra__MerchantUsers__0__ObjectId", entraMerchantUserObjectId)
         .WithEnvironment("Entra__MerchantUsers__0__MerchantId", "merchant-1");
 
+    // The sweep job's own identity: it signs in to the Public API as itself (app role Shipments.Read.App, given
+    // by the postprovision hook) and is mapped to merchant-1, like the user above.
+    var sweepIdentity = builder.AddAzureUserAssignedIdentity("sweep-identity");
+    sweepJob.WithAzureUserAssignedIdentity(sweepIdentity)
+        .WithEnvironment("Assistant__Sweep__Audience", ReferenceExpression.Create($"api://{entraPublicApiClientId}"));
+    publicApi
+        .WithEnvironment("Entra__MerchantUsers__1__ObjectId", sweepIdentity.GetOutput("principalId"))
+        .WithEnvironment("Entra__MerchantUsers__1__MerchantId", "merchant-1");
+
     // Telemetry history and alerts in Azure. The Aspire dashboard is for development: it only lives as long as the
     // environment, and nobody watches it. Each service gets APPLICATIONINSIGHTS_CONNECTION_STRING.
     var insights = builder.AddAzureApplicationInsights("insights");
-    foreach (var service in new[] { tracking, notification, publicApi, carriers, gateway, calendarMcp, opsAssistant })
+    foreach (var service in new[] { tracking, notification, publicApi, carriers, gateway, calendarMcp, opsAssistant, sweepJob })
         service.WithReference(insights);
 
     // The P95 latency alert, written by hand in ops/alerts.bicep: azd creates it with everything else.

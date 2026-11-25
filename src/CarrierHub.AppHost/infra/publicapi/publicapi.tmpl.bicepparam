@@ -10,3 +10,4 @@ param env_outputs_azure_container_registry_managed_identity_id = '{{ .Env.ENV_AZ
 param insights_outputs_appinsightsconnectionstring = '{{ .Env.INSIGHTS_APPINSIGHTSCONNECTIONSTRING }}'
 param publicapi_containerimage = '{{ .Image }}'
 param publicapi_containerport = '{{ targetPortOrDefault 8080 }}'
+param sweep_identity_outputs_principalid = '{{ .Env.SWEEP_IDENTITY_PRINCIPALID }}'

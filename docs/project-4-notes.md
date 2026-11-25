@@ -219,6 +219,34 @@ Working notes. The README and the post are written from these at the end.
   step doesn't react to cancellation). Kept: the probe decides in 5 s anyway, and at most ~2 checks are in
   flight per replica. Lowering Npgsql's timeout would also affect real queries.
 
+### Application Insights and the P95 alert
+- Application Insights is added in the AppHost's publish-mode block (locally the Aspire dashboard is enough, and
+  outside that block every local run would try to create it). The 7 services get its connection string from an
+  azd environment value, not from the repo; ServiceDefaults calls UseAzureMonitor() only when it's set.
+- ops/alerts.bicep (written by hand): an action group (email from an azd parameter) and a scheduled query rule
+  running KQL every 5 minutes: `requests | where cloud_RoleName == "publicapi" | summarize p95 = percentile(duration, 95)`,
+  firing above 1,000 ms, auto-resolving. Included with AddBicepTemplate, wired to Aspire's resource with
+  insights.GetOutput("name").
+- Why P95 and not the average: 95 requests at 20 ms and 5 at 4 s average ~220 ms, which looks fine while
+  1 user in 20 waits 4 seconds.
+
+### The sweep as a job: its own identity
+- Design: the job gets its OWN managed identity, not OpsAssistant's. OpsAssistant is public and only ever acts
+  with the caller's token; giving it an identity that can act as merchant-1 alone would let a bug or a prompt
+  injection read data with no user signed in.
+- The sweep only reads and prepares proposals (a person approves with their own token), so it needs only
+  Shipments.Read.
+- Code: the token came from one place (options.Token), so only that changed: dev token if set (local), else an
+  Entra token for the Public API (Audience/.default) from DefaultAzureCredential. Plus --sweep-once: run one sweep,
+  exit 0 or 1, no web server. Local sweep unchanged: 6 found, 6 already decided, 0 tokens.
+- Entra puts permissions in two claims: users get "scp" (one space-separated string, from consent), programs get
+  "roles" (one claim per app role assigned to them). EntraClaimsTransformation now reads both. A program's token
+  also has an oid, so it's mapped through Entra:MerchantUsers like a user. 4 unit tests, no Entra needed:
+  program read-only, user unchanged, unmapped program → no merchant, unknown role → nothing. 62/62.
+- App role Shipments.Read.App (allowed member types: Applications) on carrierhub-public-api. Entra refused
+  "Shipments.Read": a value must be unique across the app's scopes AND app roles. ScopeMap maps it to the same
+  CarrierHub scope (shipments:read).
+
 ## Open items
 - [ ] Build the chat page (OpsAssistant.Web) into wwwroot before the OpsAssistant image is built;
       wwwroot is gitignored.
