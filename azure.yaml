@@ -16,3 +16,11 @@ hooks:
     posix:
       shell: sh
       run: npm --prefix src/CarrierHub.OpsAssistant.Web ci && npm --prefix src/CarrierHub.OpsAssistant.Web run build
+  # Gives the sweep job's new identity its app role on the Public API, right after provisioning.
+  postprovision:
+    windows:
+      shell: pwsh
+      run: ./ops/grant-sweep-role.ps1
+    posix:
+      shell: pwsh
+      run: ./ops/grant-sweep-role.ps1
