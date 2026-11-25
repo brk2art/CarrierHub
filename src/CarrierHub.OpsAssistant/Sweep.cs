@@ -1,4 +1,6 @@
-﻿using CarrierHub.AssistantTools;
+﻿using Azure.Core;
+using Azure.Identity;
+using CarrierHub.AssistantTools;
 using CarrierHub.OpsAssistant.Data;
 using Microsoft.EntityFrameworkCore;
 using System.Collections.Concurrent;
@@ -17,6 +19,8 @@ public sealed class SweepOptions
     public int ListLimit { get; set; } = 100;     // late shipments listed per sweep (cheap: no model)
     public TimeSpan Interval { get; set; } = TimeSpan.FromHours(24);
     public bool Scheduled { get; set; }           // false: only POST /v1/assistant/sweeps runs it (Development)
+    public string? Audience { get; set; }         // in Azure: the Public API's ID (api://...). With no Token, the sweep
+                                                  // asks Entra for a token for it, as its own managed identity
 }
 
 // Outcome: Proposed, Skipped (not due), NotProposed (the proposal rules refused: say why), Unclear (a person must
@@ -65,7 +69,7 @@ public sealed class SweepRunner(IServiceScopeFactory scopes, SweepOptions option
 
     private async Task<SweepReport> SweepAsync(CancellationToken ct)
     {
-        var token = options.Token ?? throw new InvalidOperationException("Set Assistant:Sweep:Token.");
+        var token = await TokenAsync(ct);
         var id = Guid.CreateVersion7();
         var started = clock.GetUtcNow();
 
@@ -128,6 +132,20 @@ public sealed class SweepRunner(IServiceScopeFactory scopes, SweepOptions option
             id, report.Found, report.AlreadyDecided, report.Checked, report.Proposed, report.Skipped, report.Unclear,
             report.Failed, report.InputTokens);
         return report;
+    }
+
+    // Locally: the dev token from user secrets. In Azure: an Entra token for the Public API from the job's own
+    // managed identity, with only the Shipments.Read app role. Fetched once per sweep; it outlives a sweep easily.
+    private async Task<string> TokenAsync(CancellationToken ct)
+    {
+        if (options.Token is { Length: > 0 } token)
+            return token;
+        if (options.Audience is not { Length: > 0 } audience)
+            throw new InvalidOperationException(
+                "Set Assistant:Sweep:Token (locally) or Assistant:Sweep:Audience (in Azure).");
+
+        var access = await new DefaultAzureCredential().GetTokenAsync(new TokenRequestContext([$"{audience}/.default"]), ct);
+        return access.Token;
     }
 
     // One branch: decide, then remember the decision at once. A sweep that crashes halfway loses only what was in

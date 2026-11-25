@@ -64,6 +64,26 @@ if (app.Environment.IsDevelopment() || app.Configuration.GetValue<bool>("Databas
     await scope.ServiceProvider.GetRequiredService<AssistantDbContext>().Database.MigrateAsync();
 }
 
+// The sweep as a Container Apps job: same image, started with --sweep-once. It runs one sweep and exits, and the
+// exit code tells Azure whether this execution succeeded (0) or failed (1). The web server never starts.
+if (args.Contains("--sweep-once"))
+{
+    var log = app.Services.GetRequiredService<ILogger<SweepRunner>>();
+    try
+    {
+        var report = await app.Services.GetRequiredService<SweepRunner>().RunAsync(CancellationToken.None);
+        Environment.ExitCode = report is null ? 1 : 0;
+    }
+    catch (Exception ex)
+    {
+        log.LogError(ex, "The sweep failed");
+        Environment.ExitCode = 1;
+    }
+
+    await app.DisposeAsync();   // flushes logs and telemetry before the process ends
+    return;
+}
+
 // The chat page (src/CarrierHub.OpsAssistant.Web, built into wwwroot): index.html at /, then its files.
 app.UseDefaultFiles();
 app.UseStaticFiles();
