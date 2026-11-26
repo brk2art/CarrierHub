@@ -17,8 +17,9 @@ if (-not $roleId) { throw "The Public API has no app role called Shipments.Read.
 $assignments = "https://graph.microsoft.com/v1.0/servicePrincipals/$jobPrincipalId/appRoleAssignments"
 
 # Idempotent: running it twice doesn't assign twice.
-$existing = az rest --method GET --url $assignments --query "length(value[?appRoleId=='$roleId'])" -o tsv
-if ($existing -ne '0') {
+# No parentheses in the query: on Windows, az is a batch file, and cmd misreads them.
+$existing = az rest --method GET --url $assignments --query "value[?appRoleId=='$roleId'].id" -o tsv
+if ($existing) {
     Write-Host "The sweep job's identity already has Shipments.Read.App."
     return
 }
