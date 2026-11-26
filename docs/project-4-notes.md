@@ -246,6 +246,9 @@ Working notes. The README and the post are written from these at the end.
 - App role Shipments.Read.App (allowed member types: Applications) on carrierhub-public-api. Entra refused
   "Shipments.Read": a value must be unique across the app's scopes AND app roles. ScopeMap maps it to the same
   CarrierHub scope (shipments:read).
+- The hook then failed with "-o was unexpected at this time": on Windows az is a batch file (az.cmd), so its
+  arguments pass through cmd, which misreads parentheses in a JMESPath query. Fixed by returning the matching
+  IDs and checking in PowerShell instead of length(...) in the query.
 
 ### Small hardening
 - `server: Kestrel` removed from every response (AddServerHeader = false in ServiceDefaults): one less hint
