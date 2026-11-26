@@ -272,6 +272,13 @@ Working notes. The README and the post are written from these at the end.
   In production the action group would live outside the torn-down environment, verified once.
 - With the corrected filter, the alert fired at 18:28 for traffic sent at 18:15: about 13 min from slowness to
   alert (telemetry ingestion + the 5-minute evaluation). Delivered to the verified address.
+- Content Safety in Azure: HTTP POST 200 to carrierhub-contentsafety, 0.18 s, with OpsAssistant's own identity.
+  Week 3's open item closed.
+- The trace shows the keyless design: DefaultAzureCredential.GetToken → localhost:12356 (the managed identity
+  endpoint inside the container), then Azure OpenAI, AI Search and Content Safety with tokens. The first token
+  took ~1 s, cached ones 0.5 ms.
+- A wrong token in the chat page: 0.3 s, no model spans (the endpoint filter, confirmed in Azure).
+- Small: /v1/me is called twice per question (the filter and the assistant). The filter could pass its result on.
 
 ## Open items
 - [ ] Build the chat page (OpsAssistant.Web) into wwwroot before the OpsAssistant image is built;
