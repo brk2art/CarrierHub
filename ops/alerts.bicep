@@ -44,7 +44,7 @@ resource p95 'Microsoft.Insights/scheduledQueryRules@2022-06-15' = {
     criteria: {
       allOf: [
         {
-          query: 'requests | where cloud_RoleName == "publicapi" | summarize p95 = percentile(duration, 95)'
+          query: 'requests | where cloud_RoleName endswith "/publicapi" | summarize p95 = percentile(duration, 95)'
           metricMeasureColumn: 'p95'
           timeAggregation: 'Maximum'
           operator: 'GreaterThan'

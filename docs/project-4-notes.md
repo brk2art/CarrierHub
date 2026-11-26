@@ -256,6 +256,23 @@ Working notes. The README and the post are written from these at the end.
 - Npgsql's Kerberos attempt turned off explicitly (GssEncryptionMode.Disable in the 3 services): Entra signs in
   and TLS encrypts, so each connection no longer tries to load a library the chiseled image doesn't have.
 
+### Week 4 test deployment
+- Provision: the Container Apps environment took 15 min this time (under 2 min before): Azure-side variation.
+- First deploy failed on MockCarriers with CONTAINER1013 "Access to the path is denied": a local race in .NET's
+  container layer cache while azd builds all images in parallel. `azd deploy` again worked.
+- Sweep job in Azure, started by hand: Succeeded in ~35 s. "2 late, 0 already decided, 2 checked: 1 proposed,
+  1 skipped, 0 failed, 14,485 tokens". It signed in as its own managed identity (app role Shipments.Read.App,
+  mapped to merchant-1); the proposal waits for a person.
+- The job reaches the Public API at its public address, not an internal one: works, still authenticated;
+  internal calls should stay internal (later).
+- Probes: no probe failures, 7 × Healthy. No gssapi line. No server header in Azure either.
+- Its proposal in Azure: "Open a Late claim with ParcelGo for AZURE-4", Pending, expires in 24 h, audit trail shows the sweep that proposed it.
+- Azure Monitor emails only verified addresses: each new action group sends a "Verify your email" message first,
+  and nothing is delivered until it's clicked. Because azd down deletes the action group, every azd up asks again.
+  In production the action group would live outside the torn-down environment, verified once.
+- With the corrected filter, the alert fired at 18:28 for traffic sent at 18:15: about 13 min from slowness to
+  alert (telemetry ingestion + the 5-minute evaluation). Delivered to the verified address.
+
 ## Open items
 - [ ] Build the chat page (OpsAssistant.Web) into wwwroot before the OpsAssistant image is built;
       wwwroot is gitignored.
